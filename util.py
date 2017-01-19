@@ -15,6 +15,7 @@ class Document(object):
                  source_word,
                  source_no,
                  date,
+                 receiver,
                  subject,
                  dilistid):
 
@@ -23,6 +24,7 @@ class Document(object):
         self.source_word = source_word
         self.source_no = source_no
         self.date = date
+        self.receiver = receiver
         self.subject = subject
         self.dilistid = dilistid
 
@@ -117,6 +119,8 @@ class Eclient(object):
                 source_word=tds[5].string,
                 source_no=int(tds[6].contents[1].string),
                 date=datetime.datetime.strptime(tds[8].string.split(' ')[0], '%Y/%m/%d'),
+                # date=datetime.datetime.strptime(tds8, '%Y/%m/%d %p %I:%M:%S'),
+                receiver=tds[9].contents[2].string,
                 subject=tr1.contents[1].contents[2].string.strip().split(u'：', 1)[1],
                 dilistid=int(urlparse.parse_qs(urlparse.urlparse(tr0['linkto']).query)['dilistid'][0]),
             )
@@ -130,29 +134,32 @@ class Config(object):
         pass
         
 
-class Database(object):
-    def __init__(self, 
-                 driver=u'{SQL Server Native Client 11.0}',
-                 server=u'隊本部收發\SQLEXPRESS',
-                 database=u'YMM_POLICE',
-                 uid=u'sa',
-                 pwd=u'twntfs@cloud'):
+class Connection(pypyodbc.Connection):
+    def select(self, 
+               from_,
+               top=None, 
+               fields=['*'],
+               wheres=[]):
 
-        self.conn = pypyodbc.connect(
-            driver=driver,
-            server=server,
-            database=database,
-            uid=uid,
-            pwd=pwd,
+        top_str = '' if top is None else 'top {}'.format(top)
+        field_str = ' '.join(fields)
+        where_str = 'where ' + ' '.join(['{item}.{}'.format(where) for where in wheres]) if wheres else ''
+
+        cur_str = (
+            'select {top_str} {field_str} '
+            'from dbo.{from_} as {{item}} '
+            '{where_str}'
+        ).format(
+            top_str=top_str, 
+            field_str=field_str,
+            from_=from_,
+            where_str=where_str,
+        ).format(
+            item='item',
         )
 
-        cur = conn.cursor()
-
-        cur.execute((
-            'select top 10 * '
-            'from dbo.archive as x '
-            'where x.secret = ?'
-        ), (u'1 普通',))
-
-        for row in cur.fetchall():
-            print(row['receive_no'])
+        cur = self.cursor()
+        cur.execute(cur_str)
+        fetch = list(cur.fetchall())
+        cur.close()
+        return fetch
