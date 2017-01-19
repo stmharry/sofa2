@@ -1,0 +1,28 @@
+{% extends "bootstrap/base.html" %}
+{% block title %}
+{% endblock %}
+
+{% block content %}
+    <div class="container">
+        <div class="row">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th class="col-md-1">日期</th>
+                        <th class="col-md-3">來文字號</th>
+                        <th class="col-md-8">主旨</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for document in documents %}
+                    <tr>
+                        <td>{{ document.date.strftime("%Y-%m-%d") }}</td> 
+                        <td>{{ document.source_word }}字第 {{ document.source_no }} 號</td>
+                        <td>{{ document.subject }}</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+{% endblock %}
