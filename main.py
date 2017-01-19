@@ -19,5 +19,5 @@ def receive():
     )
 
     return flask.render_template('receive.html', documents=documents)
-
+    
 app.run(host='0.0.0.0', port=1234)
