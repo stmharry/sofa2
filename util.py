@@ -3,6 +3,7 @@
 import bs4
 import datetime
 import itertools
+import pypyodbc
 import requests
 import urlparse
 
@@ -14,7 +15,7 @@ class Document(object):
             attachment_str = u''
 
         return (
-            u'{document.date:%Y-%m-%d} #{document.serial_no}\n'
+            u'{document.date:%Y-%m-%d}'
             u'{document.source_word}字第{document.source_no}號\n'
             u'{document.subject}\n'
             u'{attachment_str}\n'
@@ -33,7 +34,6 @@ class Document(object):
                  source_word=None,
                  source_no=None,
                  date=None,
-                 serial_no=None,
                  subject=None,
                  dilistid=None,
                  attachments=None,
@@ -43,7 +43,6 @@ class Document(object):
         self.source_word = source_word
         self.source_no = source_no
         self.date = date
-        self.serial_no = serial_no
         self.subject = subject
         self.dilistid = dilistid
         self.attachments = attachments
@@ -145,3 +144,31 @@ class Eclient(object):
         document.attachments = {}
         for a_ in as_[1:]:
             document.attachments[a_.string] = a_['href']
+
+
+class SQLServer(object):
+    def __init__(self, 
+                 driver=u'{SQL Server Native Client 11.0}',
+                 server=u'隊本部收發\SQLEXPRESS',
+                 database=u'YMM_POLICE',
+                 uid=u'sa',
+                 pwd=u'twntfs@cloud'):
+
+    self.conn = pypyodbc.connect(
+        driver=driver,
+        server=server,
+        database=database,
+        uid=uid,
+        pwd=pwd,
+    )
+
+    cur = conn.cursor()
+
+        cur.execute((
+            'select top 10 * '
+            'from dbo.archive as x '
+            'where x.secret = ?'
+        ), (u'1 普通',))
+
+        for row in cur.fetchall():
+            print(row['receive_no'])
