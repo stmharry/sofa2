@@ -3,15 +3,21 @@
 import bs4
 import datetime
 import itertools
+import pandas as pd
 import pypyodbc
 import requests
-import sqlite3
 import urlparse
+
+pd.set_option('display.unicode.east_asian_width', True)
+
+def now():
+    return datetime.datetime.now()
+
 
 class Document(object):
     def __init__(self,
-                 eclient,
-                 source_name,
+                 eClient,
+                 source,
                  source_word,
                  source_no,
                  date,
@@ -19,8 +25,8 @@ class Document(object):
                  subject,
                  dilistid):
 
-        self.eclient = eclient
-        self.source_name = source_name
+        self.eClient = eClient
+        self.source = source
         self.source_word = source_word
         self.source_no = source_no
         self.date = date
@@ -36,32 +42,43 @@ class Document(object):
             'listid': '',
         }
 
-        r = self.sess.get(self.eclient.route('webeClient/main.php'), params=params)
+        r = self.eClient.get('webeClient/main.php', params=params)
         soup = bs4.BeautifulSoup(r.content, 'html.parser')
-        as_ = soup.select('table#Table1 a')
+        table = soup.find('table', id='Table1')
+        trs = table.find_all('tr')
 
+        tds = trs[1].find_all('td')
+        self.paper = tds[3].string
+
+        as_ = trs[4].find_all('a')
         self.attachments = {}
         for a_ in as_[1:]:
             self.attachments[a_.string] = a_['href']
 
 
-class Eclient(object):
+class eClient(requests.Session):
     def __init__(self, 
                  server='http://localhost:80'):
 
-        self.sess = requests.Session()
-        self.sess.headers.update({'referer': ''})
+        super(eClient, self).__init__()
+        self.headers.update({'referer': ''})
         self.server = server
 
     def route(self, url):
         return urlparse.urljoin(self.server, url)
+        
+    def get(self, url, *args, **kwargs):
+        return super(eClient, self).get(self.route(url), *args, **kwargs)
+
+    def post(self, url, *args, **kwargs):
+        return super(eClient, self).post(self.route(url), *args, **kwargs)
 
     def login(self, 
               userid='admin',
               passwd='admin_123'):
 
-        self.sess.post(
-            self.route('webeClient/menu.php'),
+        self.post(
+            'webeClient/menu.php',
             data={
                 'login': '1',
                 'userid': userid,
@@ -70,11 +87,11 @@ class Eclient(object):
         )
 
     def receive(self, **kwargs):
-        now = datetime.datetime.now()
+        now_ = now()
         now_str = '{:d}-{:02d}-{:02d}'.format(
-            now.year - 1911,
-            now.month,
-            now.day,
+            now_.year - 1911,
+            now_.month,
+            now_.day,
         )
 
         params = {
@@ -98,7 +115,7 @@ class Eclient(object):
             'full_compare_send': '',
         }
         params.update(kwargs)
-        r = self.sess.get(self.route('webeClient/main.php'), params=params)
+        r = self.get('webeClient/main.php', params=params)
 
         soup = bs4.BeautifulSoup(r.content, 'html.parser')
         table = soup.find('table', id='Table2')
@@ -114,12 +131,11 @@ class Eclient(object):
             tds = tr0.find_all('td')
 
             document = Document(
-                eclient=self,
-                source_name=tds[4].contents[2].string,
+                eClient=self,
+                source=tds[4].contents[2].string,
                 source_word=tds[5].string,
                 source_no=int(tds[6].contents[1].string),
                 date=datetime.datetime.strptime(tds[8].string.split(' ')[0], '%Y/%m/%d'),
-                # date=datetime.datetime.strptime(tds8, '%Y/%m/%d %p %I:%M:%S'),
                 receiver=tds[9].contents[2].string,
                 subject=tr1.contents[1].contents[2].string.strip().split(u'：', 1)[1],
                 dilistid=int(urlparse.parse_qs(urlparse.urlparse(tr0['linkto']).query)['dilistid'][0]),
@@ -139,27 +155,42 @@ class Connection(pypyodbc.Connection):
                from_,
                top=None, 
                fields=['*'],
-               wheres=[]):
+               wheres=[],
+               order_bys=[]):
 
-        top_str = '' if top is None else 'top {}'.format(top)
-        field_str = ' '.join(fields)
-        where_str = 'where ' + ' '.join(['{item}.{}'.format(where) for where in wheres]) if wheres else ''
-
-        cur_str = (
-            'select {top_str} {field_str} '
-            'from dbo.{from_} as {{item}} '
-            '{where_str}'
+        query = (
+            u'select {top}{field} '
+            u'from {from_} '
+            u'{where} '
+            u'{order_by} '
         ).format(
-            top_str=top_str, 
-            field_str=field_str,
+            top='' if top is None else 'top {} '.format(top), 
+            field=', '.join(fields),
             from_=from_,
-            where_str=where_str,
-        ).format(
-            item='item',
+            where='where ' + ' and '.join(wheres) if wheres else '',
+            order_by='order by ' + ', '.join(order_bys) if order_bys else '',
         )
 
-        cur = self.cursor()
-        cur.execute(cur_str)
-        fetch = list(cur.fetchall())
-        cur.close()
-        return fetch
+        print(query)
+
+        df = pd.read_sql(query, con=self)
+        return df
+
+    def insert(self,
+               into,
+               fields=[],
+               values=[]):
+
+        query = (
+            u'insert '
+            u'into {into} {field} '
+            u'values {value} '
+        ).format( 
+            into=into,
+            field='(' + ', '.join(fields) + ')' if fields else '',
+            value='(' + ', '.join(map(u'\'{}\''.format, values)) + ')' if values else '',
+        )
+
+        cursor = self.cursor()
+        cursor.execute(query)
+        self.commit()

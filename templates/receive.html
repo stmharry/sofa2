@@ -22,9 +22,9 @@
 {% block content %}
     <div class="container">
     {% for alert in alerts %}
-        <div class="alert alert-success" role="alert">
-            {{ alert }}
-        </div>
+        <pre>{{ alert }}</pre>
+        <!--div class="alert alert-success" role="alert">
+        </div-->
     {% endfor %}
         <div class="row">
         {% for document in documents %}
@@ -45,15 +45,15 @@
                     <tbody>
                     {% for document in documents %}
                         <tr>
-                            <td>{{ document.date.strftime("%Y-%m-%d %H:%M:%S") }}</td> 
+                            <td>{{ document.date.strftime("%Y-%m-%d") }}</td> 
                             <td>{{ document.source_word }}字第 {{ document.source_no }} 號</td>
                             <td>{{ document.receiver }}</td>
                             <td>{{ document.subject }}</td>
                             <td>
                                 <select form="{{ document.dilistid }}" class="form-control" name="conductor">
                                     <option></option>
-                                {% for conductor in conductors %}
-                                    <option>{{ conductor.0 }}</option>
+                                {% for user_nm in user_nms %}
+                                    <option>{{ user_nm }}</option>
                                 {% endfor %}
                                 </select>
                             </td>
