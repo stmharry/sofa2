@@ -21,6 +21,9 @@ connection = util.Connection(
     unicode_results=True,
 )
 
+# TODO: tidy up this part
+# ---
+
 conductors = connection.select(
     from_='conductor', 
     fields=['user_nm'],
@@ -30,19 +33,28 @@ secrets = connection.select(
     from_='secret',
     fields=['code_no', 'code_nm'],
 )
-secret_default = secrets[secrets.code_no.map(unicode.strip) == '1'].loc[0]
+secrets.code_no = secrets.code_no.map(unicode.strip)
+secret_default = secrets[secrets.code_no == '1'].iloc[0]
+
+papers = connection.select(
+    from_='paper',
+    fields=['code_no', 'code_nm'],
+)
+papers.code_no = papers.code_no.map(unicode.strip)
 
 books = connection.select(
     from_='book',
     fields=['code_no', 'code_nm'],
 )
-book_default = books[books.code_no.map(unicode.strip) == '1'].loc[0]
+books.code_no = books.code_no.map(unicode.strip)
+book_default = books[books.code_no == '1'].iloc[0]
 
 speed_default = u'普通件'
 archive_no_default = 1
 process_days_default = 0.5
 measure_default = u'頁'
 user_default = u'系統管理員'
+# ---
 
 @app.route('/receive', methods=['GET', 'POST'])
 def receive():
@@ -63,11 +75,10 @@ def receive():
     
         archives = connection.select(
             from_='archive', 
-            #fields=['sno', 'receive_no'],
+            fields=['sno', 'receive_no'],
             wheres=['Year(receive_date) = {}'.format(util.now().year)],
             order_bys=['sno desc'],
         )
-        alerts.append(archives.iloc[0])
 
         now = util.now()
         field_values = {
@@ -75,18 +86,18 @@ def receive():
             'sno': max(archives.sno.tolist() or [0]) + 1,
             'receive_no': max(archives.receive_no.map(int).tolist() or [0]) + 1,
             'receive_date': '{:%Y/%m/%d}'.format(now),
-            'secret': u'{secret.code_no}{secret.code_nm}'.format(secret=secret_default),
+            'secret': u'{secret.code_no} {secret.code_nm}'.format(secret=secret_default),
             'source': document.source,
             'source_no': u'{document.source_word}字第{document.source_no}號'.format(document=document),
-            'paper': document.paper,
-            'book': u'{book.code_no}{book.code_nm}'.format(book=book_default),
+            'paper': u'{paper.code_no} {paper.code_nm}'.format(paper=papers[papers.code_nm.map(unicode.strip) == document.paper].iloc[0]),
+            'book': u'{book.code_no} {book.code_nm}'.format(book=book_default),
             'speed': speed_default,
             'user_nm': conductor,
             'subject': document.subject,
             'archive_no': archive_no_default,
             'process_days': process_days_default,
             'measure': measure_default,
-            'ymm_month': '{:02d}'.format(now.month),
+            'ymm_month': now.month,
             'ymm_user': user_default,
         }
 
@@ -102,6 +113,5 @@ def receive():
         documents=documents,
         user_nms=conductors.user_nm,
     )
-
 
 app.run(host='0.0.0.0', port=1234)

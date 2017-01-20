@@ -16,7 +16,8 @@ def now():
 
 class Document(object):
     def __init__(self,
-                 eClient,
+                 eclient,
+                 checked,
                  source,
                  source_word,
                  source_no,
@@ -25,7 +26,8 @@ class Document(object):
                  subject,
                  dilistid):
 
-        self.eClient = eClient
+        self.checked = checked
+        self.eclient = eclient
         self.source = source
         self.source_word = source_word
         self.source_no = source_no
@@ -42,7 +44,7 @@ class Document(object):
             'listid': '',
         }
 
-        r = self.eClient.get('webeClient/main.php', params=params)
+        r = self.eclient.get('webeClient/main.php', params=params)
         soup = bs4.BeautifulSoup(r.content, 'html.parser')
         table = soup.find('table', id='Table1')
         trs = table.find_all('tr')
@@ -131,7 +133,8 @@ class eClient(requests.Session):
             tds = tr0.find_all('td')
 
             document = Document(
-                eClient=self,
+                eclient=self,
+                checked='checked' in tds[1].input,
                 source=tds[4].contents[2].string,
                 source_word=tds[5].string,
                 source_no=int(tds[6].contents[1].string),
@@ -173,7 +176,7 @@ class Connection(pypyodbc.Connection):
 
         print(query)
 
-        df = pd.read_sql(query, con=self)
+        df = pd.read_sql(query, con=self, coerce_float=True)
         return df
 
     def insert(self,
@@ -191,6 +194,10 @@ class Connection(pypyodbc.Connection):
             value='(' + ', '.join(map(u'\'{}\''.format, values)) + ')' if values else '',
         )
 
+        print(query)
+        '''
         cursor = self.cursor()
         cursor.execute(query)
+        cursor.close()
         self.commit()
+        '''
