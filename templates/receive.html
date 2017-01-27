@@ -28,7 +28,7 @@
     {% endfor %}
         <div class="row">
         {% for document in documents %}
-            <form id="{{ document.dilistid }}" action="receive" method="post"></form>
+            <form id="{{ document.id_ }}" action="receive" method="post"></form>
         {% endfor %}
             <div class="form-group">
                 <table class="table">
@@ -45,12 +45,12 @@
                     <tbody>
                     {% for document in documents %}
                         <tr>
-                            <td>{{ document.date.strftime("%Y-%m-%d") }}</td> 
-                            <td>{{ document.source_word }}字第 {{ document.source_no }} 號</td>
+                            <td>{{ document.receive_datetime.strftime("%Y-%m-%d") }}</td> 
+                            <td>{{ document.source_no }}</td>
                             <td>{{ document.receiver }}</td>
                             <td>{{ document.subject }}</td>
                             <td>
-                                <select form="{{ document.dilistid }}" class="form-control" name="conductor">
+                                <select form="{{ document.id_ }}" class="form-control" name="conductor">
                                     <option></option>
                                 {% for user_nm in user_nms %}
                                     <option>{{ user_nm }}</option>
@@ -58,7 +58,7 @@
                                 </select>
                             </td>
                             <td>
-                                <button form="{{ document.dilistid }}" class="btn btn-primary" type="submit" name="dilistid" value="{{ document.dilistid }}">
+                                <button form="{{ document.id_ }}" class="btn btn-primary" type="submit" name="id" value="{{ document.id_ }}">
                                     掛號
                                 </button>
                             </td>
