@@ -1,10 +1,9 @@
 # -*- coding: utf-8 -*-
 
-import datetime
 import flask
 import flask_bootstrap
 
-from util import Document, eClient, Connection
+from util import Document, Converter, eClient, Connection
 
 app = flask.Flask(__name__)
 flask_bootstrap.Bootstrap(app)
@@ -25,14 +24,14 @@ connection = Connection(
 )
 
 converter = Converter(
-    connection=connetion,
+    connection=connection,
 )
+
 
 @app.route('/receive', methods=['GET', 'POST'])
 def receive():
     alerts = []
 
-    now = datetime.datetime.now()
     documents = eclient.receive(
         # start_date='106-01-01',
     )
@@ -53,12 +52,15 @@ def receive():
             new_archives,
             into='archive',
         )
+        ''' Set checked at eclient
+        eclient.set_checked(document)
+        '''
 
     return flask.render_template(
         'receive.html',
         alerts=alerts,
         documents=documents,
-        user_nms=conductors.user_nm,
+        user_nms=converter.conductors.user_nm,
     )
 
 app.run(host='0.0.0.0', port=1234)

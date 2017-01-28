@@ -3,7 +3,6 @@
 import bs4
 import datetime
 import itertools
-import numpy as np
 import pandas as pd
 import pypyodbc
 import requests
@@ -200,9 +199,9 @@ class Converter(object):
             ],
         )
 
-        secret_default = self.secrets[secrets.code_no == '1'].iloc[0]
-        paper_default = self.papers[papers.code_no == '21'].iloc[0]
-        book_default = self.books[books.code_no == '1'].iloc[0]
+        secret_default = self.secrets[self.secrets.code_no == '1'].iloc[0]
+        paper_default = self.papers[self.papers.code_no == '21'].iloc[0]
+        book_default = self.books[self.books.code_no == '1'].iloc[0]
 
         self.archive_default = pd.DataFrame([{
             'secret': Converter.code(secret_default),
@@ -215,7 +214,9 @@ class Converter(object):
             'ymm_user': u'系統管理員',
         }])
 
-    def to_archives(documents):
+    def to_archives(self, documents):
+        now = datetime.datetime.now()
+
         archives = self.connection.select(
             from_='archive',
             fields=['sno', 'convert(int, receive_no)'],
@@ -223,7 +224,6 @@ class Converter(object):
             order_bys=['sno desc'],
         )
 
-        now = datetime.datetime.now()
         if archives.empty:
             sno = 1
             receive_no = 1
@@ -324,4 +324,3 @@ class Connection(pypyodbc.Connection):
                into):
 
         df.to_sql(into, con=self, if_exists='append', index=False)
-
