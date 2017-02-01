@@ -137,7 +137,6 @@ class eClient(requests.Session):
                 subject=tr1.contents[1].contents[2].string.strip().split(u'：', 1)[1],
             )
             documents.append(document)
-
         return documents
 
     def receive_detail(self, document):
