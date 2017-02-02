@@ -3,7 +3,7 @@
 import flask
 import flask_bootstrap
 
-from util import Document, Converter, eClient, Connection
+from util import Document, Manager, eClient, Connection
 
 app = flask.Flask(__name__)
 flask_bootstrap.Bootstrap(app)
@@ -23,7 +23,8 @@ connection = Connection(
     unicode_results=True,
 )
 
-converter = Converter(
+manager = Manager(
+    eclient=eclient,
     connection=connection,
 )
 
@@ -32,7 +33,7 @@ converter = Converter(
 def receive():
     alerts = []
 
-    documents = eclient.receive(
+    documents = manager.receive(
         # start_date='106-01-01',
     )
 
@@ -40,18 +41,19 @@ def receive():
         id_ = int(flask.request.form['id'])
         conductor = flask.request.form['conductor']
 
-        new_documents = [
-            eclient.receive_detail(document)
-            for document in documents
-            if document.id_ == id_
-        ]
-        new_documents[0].user_nm = conductor
-
-        new_archives = converter.to_archives(new_documents)
+        document = documents[id_]
+        document.user_nm = conductor
+        manager.receive_detail(document)
+        
         connection.insert(
-            new_archives,
+            manager.to_archive(document), 
             into='archive',
         )
+
+        manager.save(document)
+
+        alerts.append(document.__dict__)
+
         ''' Set checked at eclient
         eclient.set_checked(document)
         '''
@@ -60,7 +62,7 @@ def receive():
         'receive.html',
         alerts=alerts,
         documents=documents,
-        user_nms=converter.conductors.user_nm,
+        user_nms=manager.conductors.user_nm,
     )
 
 app.run(host='0.0.0.0', port=1234)

@@ -27,8 +27,8 @@
         </div-->
     {% endfor %}
         <div class="row">
-        {% for document in documents %}
-            <form id="{{ document.id_ }}" action="receive" method="post"></form>
+        {% for id_, document in documents.items() %}
+            <form id="{{ id_ }}" action="receive" method="post"></form>
         {% endfor %}
             <div class="form-group">
                 <table class="table">
@@ -37,20 +37,22 @@
                             <th width="10%">日期</th>
                             <th width="20%">來文字號</th>
                             <th width="15%">收文者</th>
-                            <th width="40%">主旨</th>
+                            <th width="35%">主旨</th>
+                            <th width="5%">附件</th>
                             <th width="10%">承辦人</th>
                             <th width="5%"></th>
                         </tr>
                     </thead>
                     <tbody>
-                    {% for document in documents %}
+                    {% for id_, document in documents.items() %}
                         <tr>
                             <td>{{ document.receive_datetime.strftime("%Y-%m-%d") }}</td> 
                             <td>{{ document.source_no }}</td>
                             <td>{{ document.receiver }}</td>
                             <td>{{ document.subject }}</td>
+                            <td>{{ document.num_attachments }}</td>
                             <td>
-                                <select form="{{ document.id_ }}" class="form-control" name="conductor">
+                                <select form="{{ id_ }}" class="form-control" name="conductor">
                                     <option></option>
                                 {% for user_nm in user_nms %}
                                     <option>{{ user_nm }}</option>
@@ -58,7 +60,7 @@
                                 </select>
                             </td>
                             <td>
-                                <button form="{{ document.id_ }}" class="btn btn-primary" type="submit" name="id" value="{{ document.id_ }}">
+                                <button form="{{ id_ }}" class="btn btn-primary" type="submit" name="id" value="{{ id_ }}">
                                     掛號
                                 </button>
                             </td>
