@@ -10,6 +10,7 @@ import os
 import re
 import requests
 import shutil
+import time
 import urlparse
 
 pd.set_option('display.unicode.east_asian_width', True)
@@ -54,7 +55,15 @@ class Manager(object):
             },
         )
         self.conductors.loc[self.conductors.user_nm == u'莊俊傑', 'path'] = u'\\\\隊本部收發\\收發\\公文附件\\俊傑'  # DEBUG
+        self.conductors.loc[self.conductors.user_nm == u'粘銘進', 'path'] = u'\\\\隊本部收發\\收發\\公文附件\\銘進'  # DEBUG
+        self.conductors.loc[self.conductors.user_nm == u'林舜欽', 'path'] = u'\\\\隊本部收發\\收發\\公文附件\\舜欽'  # DEBUG
+        self.conductors.loc[self.conductors.user_nm == u'林鴻慶', 'path'] = u'\\\\隊本部收發\\收發\\公文附件\\鴻慶'  # DEBUG
         self.conductors.loc[self.conductors.user_nm == u'曾明欽', 'path'] = u'\\\\隊本部收發\\收發\\公文附件\\曾明欽'  # DEBUG
+        self.conductors.loc[self.conductors.user_nm == u'劉晃', 'path'] = u'\\\\隊本部收發\\收發\\公文附件\\劉晃'  # DEBUG
+        self.conductors.loc[self.conductors.user_nm == u'蔣招祺', 'path'] = u'\\\\隊本部收發\\收發\\公文附件\\招祺'  # DEBUG
+
+        self.print_path = u'\\\\隊本部收發\\收發\\公文附件\\列印'  # DEBUG
+
         self.secrets = connection.select(
             from_='secret',
             fields={
@@ -140,7 +149,6 @@ class Manager(object):
             'tr',
             class_='openMenu',
         )
-
         tr_batches = itertools.izip_longest(*[iter(trs)] * 2)
 
         documents = collections.OrderedDict()
@@ -148,16 +156,17 @@ class Manager(object):
             tds = tr0.find_all('td')
             id_ = int(urlparse.parse_qs(urlparse.urlparse(tr0['linkto']).query)['dilistid'][0])
 
-            documents[id_] = Document(
-                id_=id_,
-                checked='checked' in tds[1].input,
-                source=tds[4].contents[2].string,
-                source_no=u'{:s}字第{:d}號'.format(tds[5].string, int(tds[6].contents[1].string)),
-                receiver=tds[9].contents[2].string,
-                receive_datetime=datetime.datetime.strptime(tds[8].string.split(' ')[0], '%Y/%m/%d'),
-                subject=tr1.contents[1].contents[2].string.strip().split(u'：', 1)[1],
-                num_attachments=int(tds[7].string),
-            )
+            if u'收文完成' in tds[3].contents[1].string:
+                documents[id_] = Document(
+                    id_=id_,
+                    checked=tds[1].input.has_attr('checked'),
+                    source=tds[4].contents[2].string,
+                    source_no=u'{:s}字第{:d}號'.format(tds[5].string, int(tds[6].contents[1].string)),
+                    receiver=tds[9].contents[2].string,
+                    receive_datetime=datetime.datetime.strptime(tds[8].string.split(' ')[0], '%Y/%m/%d'),
+                    subject=tr1.contents[1].contents[2].string.strip().split(u'：', 1)[1],
+                    num_attachments=int(tds[7].string),
+                )
 
         return documents
 
@@ -180,14 +189,48 @@ class Manager(object):
 
         document.attachments = {}
 
+        input_ = soup.find('input', value=u'下載PDF')
+        match = re.search('(\'(?P<url>..*)\')', input_['onclick'])
+        document.attachments['print.pdf'] = match.group('url')
+
         as_ = trs[4].find_all('a')
         for a_ in as_[1:]:
             if not a_.string.endswith('.di') and not a_.string.endswith('.sw'):
                 document.attachments[a_.string] = a_['href']
 
-        input_ = soup.find('input', value=u'下載PDF')
-        match = re.search('(\'(?P<url>..*)\')', input_['onclick'])
-        document.attachments['print.pdf'] = match.group('url')
+    def set_checked(self, document):
+        return  # DEBUG
+        document.checked = not document.checked
+        params = {
+            '_': int(time.time() * 1000),
+            'menuCode': 'RECVQRY',
+            'showhtml': 'empty',
+            'action': 'settag',
+            'dilistid': document.id_,
+            'tagvalue': int(document.checked),
+        }
+
+        r = self.eclient.get('webeClient/main.php', params=params)
+
+    def save(self, document):
+        document.receive_no = self.receive_no
+
+        conductor = self.conductors[self.conductors.user_nm == document.user_nm].iloc[0]
+        attachment_dir = os.path.join(conductor.path, '{:04d}'.format(document.receive_no))
+
+        if not os.path.isdir(attachment_dir):
+            os.mkdir(attachment_dir)
+        
+        now = time.time()
+        for (name, url) in document.attachments.items():
+            r = self.eclient.get('webeClient/{:s}'.format(url), stream=True)
+
+            attachment_path = os.path.join(attachment_dir, name)
+            with open(attachment_path, 'wb') as f:
+                shutil.copyfileobj(r.raw, f)
+
+            print_path = os.path.join(self.print_path, '{:.0f}_{:s}'.format(now, name))
+            shutil.copyfile(attachment_path, print_path)
 
     def to_archive(self, document):
         now = datetime.datetime.now()
@@ -225,21 +268,6 @@ class Manager(object):
 
         return archive
 
-    def save(self, document):
-        document.receive_no = self.receive_no
-
-        conductor = self.conductors[self.conductors.user_nm == document.user_nm].iloc[0]
-        attachment_dir = os.path.join(conductor.path, '{:04d}'.format(document.receive_no))
-
-        if not os.path.isdir(attachment_dir):
-            os.mkdir(attachment_dir)
-        
-        for (name, url) in document.attachments.items():
-            r = self.eclient.get('webeClient/{:s}'.format(url), stream=True)
-
-            with open(os.path.join(attachment_dir, name), 'wb') as f:
-                shutil.copyfileobj(r.raw, f)
-
 class eClient(requests.Session):
     def __init__(self,
                  server,
@@ -260,7 +288,9 @@ class eClient(requests.Session):
         )
 
     def route(self, url):
-        return urlparse.urljoin(self.server, url)
+        url = urlparse.urljoin(self.server, url)
+        print(url)  # DEBUG
+        return url
 
     def get(self, url, *args, **kwargs):
         return super(eClient, self).get(self.route(url), *args, **kwargs)
@@ -337,9 +367,8 @@ class Connection(pypyodbc.Connection):
         )
 
         print(query)
-        '''
+        return  # DEBUG
         cursor = self.cursor()
         cursor.execute(query)
         cursor.close()
         self.commit()
-        '''

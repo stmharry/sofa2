@@ -51,12 +51,7 @@ def receive():
         )
 
         manager.save(document)
-
-        alerts.append(document.__dict__)
-
-        ''' Set checked at eclient
-        eclient.set_checked(document)
-        '''
+        manager.set_checked(document)
 
     return flask.render_template(
         'receive.html',
