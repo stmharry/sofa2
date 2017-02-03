@@ -57,7 +57,7 @@ class Manager(object):
     @staticmethod
     def document_str(document, status):
         if status == Manager.SUCCESS:
-            str_ = u'公文 {:s} 已掛號為 {:d} 號，承辦人為 {:s}'.format(
+            str_ = u'{:s} 已掛為 {:d} 號，承辦人為 {:s}'.format(
                 document.source_no,
                 document.receive_no,
                 document.user_nm,
