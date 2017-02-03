@@ -15,34 +15,54 @@ import urlparse
 
 pd.set_option('display.unicode.east_asian_width', True)
 
-DEBUG = False
+DEBUG = True
 
 
 class Document(object):
     def __init__(self,
-                 id_,
+                 ids,
                  checked,
                  source,
                  source_no,
-                 receiver,
+                 receivers,
                  receive_datetime,
                  subject,
                  num_attachments):
 
-        self.id_ = id_
-        self.checked = checked
+        self.ids = ids
+        self.checked = checked and False # DEBUG
         self.source = source
         self.source_no = source_no
-        self.receiver = receiver
+        self.receivers = receivers
         self.receive_datetime = receive_datetime
         self.subject = subject
         self.num_attachments = num_attachments
 
 
 class Manager(object):
+    SUCCESS = 0
+
     @staticmethod
-    def code(item):
+    def time_str(time):
+        return '{:d}-{:02d}-{:02d}'.format(
+            time.year - 1911,
+            time.month,
+            time.day,
+        )
+
+    @staticmethod
+    def code_str(item):
         return u'{item.code_no} {item.code_nm}'.format(item=item)
+
+    @staticmethod
+    def document_str(document, status):
+        if status == Manager.SUCCESS:
+            str_ = u'公文 {:s} 已掛號為 {:d} 號，承辦人為 {:s}'.format(
+                document.source_no,
+                document.receive_no,
+                document.user_nm,
+            )
+        return str_
 
     def __init__(self,
                  eclient,
@@ -93,9 +113,9 @@ class Manager(object):
         book_default = self.books[self.books.code_no == '1'].iloc[0]
 
         self.archive_default = pd.DataFrame([{
-            'secret': Manager.code(secret_default),
-            'paper': Manager.code(paper_default),
-            'book': Manager.code(book_default),
+            'secret': Manager.code_str(secret_default),
+            'paper': Manager.code_str(paper_default),
+            'book': Manager.code_str(book_default),
             'speed': u'普通件',
             'archive_no': 1,
             'process_days': 0.5,
@@ -106,22 +126,14 @@ class Manager(object):
     def receive(self,
                 source_word='',
                 source_number='',
-                source_id='',
                 source='',
                 subject='',
-                full_compare=0,
-                query_time='create_time',
-                start_date=None,
-                start_hour=0,
-                end_date=None,
-                end_hour=23):
+                start_datetime=None,
+                end_datetime=None):
 
         now = datetime.datetime.now()
-        now_str = '{:d}-{:02d}-{:02d}'.format(
-            now.year - 1911,
-            now.month,
-            now.day,
-        )
+        start_datetime = start_datetime or now
+        end_datetime = end_datetime or (now - datetime.timedelta(weeks=1))
 
         params = {
             'menuCode': 'RECVQRY',
@@ -130,14 +142,14 @@ class Manager(object):
             'doc_word': source_word,
             'doc_no': source_number,
             'doc_title': subject,
-            'full_compare': full_compare,
-            'senderid': source_id,
+            'full_compare': 0,
+            'senderid': '',
             'sendername': source,
-            'query_time': query_time,
-            'startDate': start_date or now_str,
-            'sHour': start_hour,
-            'endDate': end_date or now_str,
-            'eHour': end_hour,
+            'query_time': 'create_time',
+            'startDate': Manager.time_str(start_datetime),
+            'sHour': start_datetime.hour,
+            'endDate': Manager.time_str(end_datetime),
+            'eHour': end_datetime.hour,
             'noteonly': 2,
             'pn': 0,
             'ifquery_recvqry': 1,
@@ -153,59 +165,75 @@ class Manager(object):
         )
         tr_batches = itertools.izip_longest(*[iter(trs)] * 2)
 
-        documents = collections.OrderedDict()
+        documents_by_source_no = collections.OrderedDict()
+
         for (tr0, tr1) in tr_batches:
             tds = tr0.find_all('td')
-            id_ = int(urlparse.parse_qs(urlparse.urlparse(tr0['linkto']).query)['dilistid'][0])
+        
+            if u'收文完成' not in tds[3].contents[1].string:
+                continue
 
-            if u'收文完成' in tds[3].contents[1].string:
-                documents[id_] = Document(
-                    id_=id_,
+            id_ = int(urlparse.parse_qs(urlparse.urlparse(tr0['linkto']).query)['dilistid'][0])
+            source_no = u'{:s}字第{:d}號'.format(tds[5].string, int(tds[6].contents[1].string))
+            receiver = tds[9].contents[2].string
+
+            if source_no in documents_by_source_no:
+                document = documents_by_source_no[source_no]
+
+                document.ids.append(id_)
+                document.receivers.append(receiver)
+            else:
+                document = Document(
+                    ids=[id_],
                     checked=tds[1].input.has_attr('checked'),
                     source=tds[4].contents[2].string,
-                    source_no=u'{:s}字第{:d}號'.format(tds[5].string, int(tds[6].contents[1].string)),
-                    receiver=tds[9].contents[2].string,
+                    source_no=source_no,
+                    receivers=[receiver],
                     receive_datetime=datetime.datetime.strptime(tds[8].string.split(' ')[0], '%Y/%m/%d'),
                     subject=tr1.contents[1].contents[2].string.strip().split(u'：', 1)[1],
                     num_attachments=int(tds[7].string),
                 )
+                documents_by_source_no[source_no] = document
 
-        return documents
+        return documents_by_source_no
 
     def receive_detail(self, document):
-        params = {
-            'menuCode': 'RECVQRY',
-            'detail': 'showdetail',
-            'dilistid': document.id_,
-            'listid': '',
-        }
-
-        r = self.eclient.get('webeClient/main.php', params=params)
-        soup = bs4.BeautifulSoup(r.content, 'html.parser')
-        table = soup.find('table', id='Table1')
-        trs = table.find_all('tr')
-
-        tds = trs[1].find_all('td')
-        document.paper_nm = tds[3].string
-        document.speed_nm = tds[1].string
-
         document.attachments = {}
+        for (num, id_) in enumerate(document.ids):
+            params = {
+                'menuCode': 'RECVQRY',
+                'detail': 'showdetail',
+                'dilistid': id_,
+                'listid': '',
+            }
 
-        input_ = soup.find('input', value=u'下載PDF')
-        match = re.search('(\'(?P<url>..*)\')', input_['onclick'])
-        pdf_name = u'{:s}.pdf'.format(document.subject[:8])
-        document.attachments[pdf_name] = match.group('url')
+            r = self.eclient.get('webeClient/main.php', params=params)
+            soup = bs4.BeautifulSoup(r.content, 'html.parser')
+            table = soup.find('table', id='Table1')
+            trs = table.find_all('tr')
 
-        as_ = trs[4].find_all('a')
-        for a_ in as_[1:]:
-            if not a_.string.endswith('.di') and not a_.string.endswith('.sw'):
-                document.attachments[a_.string] = a_['href']
+            if num == 0:
+                tds = trs[1].find_all('td')
+                document.paper_nm = tds[3].string
+                document.speed_nm = tds[1].string
+
+                as_ = trs[4].find_all('a')
+                for a_ in as_[1:]:
+                    if not a_.string.endswith('.di') and not a_.string.endswith('.sw'):
+                        document.attachments[a_.string] = a_['href']
+
+            input_ = soup.find('input', value=u'下載PDF')
+            match = re.search('(\'(?P<url>..*)\')', input_['onclick'])
+            pdf_name = u'{:s}.pdf'.format(document.subject[:8])
+            document.attachments[pdf_name] = match.group('url')
+
 
     def set_checked(self, document):
+        document.checked = not document.checked
+
         if DEBUG:
             return
 
-        document.checked = not document.checked
         params = {
             '_': int(time.time() * 1000),
             'menuCode': 'RECVQRY',
@@ -217,11 +245,11 @@ class Manager(object):
 
         r = self.eclient.get('webeClient/main.php', params=params)
 
-    def save(self, document):
+    def save_files(self, document):
+        document.receive_no = self.receive_no
+
         if DEBUG:
             return
-
-        document.receive_no = self.receive_no
 
         conductor = self.conductors[self.conductors.user_nm == document.user_nm].iloc[0]
         attachment_dir = os.path.join(conductor.path, '{:04d}'.format(document.receive_no))
@@ -238,7 +266,6 @@ class Manager(object):
                 '{:d}_{:d}_{:s}'.format(document.receive_no, num_attachment, name),
             )
             with open(attachment_path, 'wb') as f:
-
                 shutil.copyfileobj(r.raw, f)
 
             print_path = os.path.join(self.print_path, '{:.0f}_{:s}'.format(now, name))
@@ -270,7 +297,7 @@ class Manager(object):
             receive_date='{:%Y/%m/%d}'.format(now),
             source=document.source,
             source_no=document.source_no,
-            paper=Manager.code(
+            paper=Manager.code_str(
                 item=self.papers[self.papers.code_nm == document.paper_nm].iloc[0],
             ),
             user_nm=document.user_nm,

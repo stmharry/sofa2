@@ -32,17 +32,15 @@ manager = Manager(
 
 @app.route('/receive', methods=['GET', 'POST'])
 def receive():
+    messages = []
     alerts = []
-
-    documents = manager.receive(
-        start_date='106-02-02',  # DEBUG
-    )
+    documents_by_source_no = manager.receive()
 
     if flask.request.method == 'POST':
-        id_ = int(flask.request.form['id'])
+        source_no = flask.request.form['source-no']
         conductor = flask.request.form['conductor']
 
-        document = documents[id_]
+        document = documents_by_source_no[source_no]
         document.user_nm = conductor
         manager.receive_detail(document)
         
@@ -51,15 +49,18 @@ def receive():
             into='archive',
         )
 
-        manager.save(document)
+        manager.save_files(document)
         manager.set_checked(document)
+
+        alerts.append(Manager.document_str(document, Manager.SUCCESS))
 
     return flask.render_template(
         'receive.html',
+        messages=messages,
         alerts=alerts,
-        documents=documents,
+        documents=set(documents_by_source_no.values()),
         user_nms=manager.conductors.user_nm,
     )
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=1234)
+    app.run(host='0.0.0.0', port=1235)
