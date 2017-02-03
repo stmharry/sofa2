@@ -235,13 +235,13 @@ class Manager(object):
 
             attachment_path = os.path.join(
                 attachment_dir, 
-                '{:d}_{:d}_{:s}'.format(document.receive_no, num_attachment, name),
+                u'{:d}_{:d}_{:s}'.format(document.receive_no, num_attachment, name),
             )
             with open(attachment_path, 'wb') as f:
 
                 shutil.copyfileobj(r.raw, f)
 
-            print_path = os.path.join(self.print_path, '{:.0f}_{:s}'.format(now, name))
+            print_path = os.path.join(self.print_path, u'{:.0f}_{:s}'.format(now, name))
             shutil.copyfile(attachment_path, print_path)
 
     def to_archive(self, document):
