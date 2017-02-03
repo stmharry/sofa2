@@ -15,6 +15,8 @@ import urlparse
 
 pd.set_option('display.unicode.east_asian_width', True)
 
+DEBUG = False
+
 
 class Document(object):
     def __init__(self,
@@ -191,7 +193,8 @@ class Manager(object):
 
         input_ = soup.find('input', value=u'下載PDF')
         match = re.search('(\'(?P<url>..*)\')', input_['onclick'])
-        document.attachments['print.pdf'] = match.group('url')
+        pdf_name = u'{:s}.pdf'.format(document.subject[:8])
+        document.attachments[pdf_name] = match.group('url')
 
         as_ = trs[4].find_all('a')
         for a_ in as_[1:]:
@@ -199,7 +202,9 @@ class Manager(object):
                 document.attachments[a_.string] = a_['href']
 
     def set_checked(self, document):
-        return  # DEBUG
+        if DEBUG:
+            return
+
         document.checked = not document.checked
         params = {
             '_': int(time.time() * 1000),
@@ -213,6 +218,9 @@ class Manager(object):
         r = self.eclient.get('webeClient/main.php', params=params)
 
     def save(self, document):
+        if DEBUG:
+            return
+
         document.receive_no = self.receive_no
 
         conductor = self.conductors[self.conductors.user_nm == document.user_nm].iloc[0]
@@ -222,11 +230,15 @@ class Manager(object):
             os.mkdir(attachment_dir)
         
         now = time.time()
-        for (name, url) in document.attachments.items():
+        for (num_attachment, (name, url)) in enumerate(document.attachments.items()):
             r = self.eclient.get('webeClient/{:s}'.format(url), stream=True)
 
-            attachment_path = os.path.join(attachment_dir, name)
+            attachment_path = os.path.join(
+                attachment_dir, 
+                '{:d}_{:d}_{:s}'.format(document.receive_no, num_attachment, name),
+            )
             with open(attachment_path, 'wb') as f:
+
                 shutil.copyfileobj(r.raw, f)
 
             print_path = os.path.join(self.print_path, '{:.0f}_{:s}'.format(now, name))
@@ -289,7 +301,6 @@ class eClient(requests.Session):
 
     def route(self, url):
         url = urlparse.urljoin(self.server, url)
-        print(url)  # DEBUG
         return url
 
     def get(self, url, *args, **kwargs):
@@ -367,7 +378,10 @@ class Connection(pypyodbc.Connection):
         )
 
         print(query)
-        return  # DEBUG
+
+        if DEBUG:
+            return
+
         cursor = self.cursor()
         cursor.execute(query)
         cursor.close()

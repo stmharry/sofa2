@@ -3,9 +3,10 @@
 import flask
 import flask_bootstrap
 
-from util import Document, Manager, eClient, Connection
+from util import DEBUG, Document, Manager, eClient, Connection
 
 app = flask.Flask(__name__)
+app.debug = DEBUG
 flask_bootstrap.Bootstrap(app)
 
 eclient = eClient(
@@ -34,7 +35,7 @@ def receive():
     alerts = []
 
     documents = manager.receive(
-        # start_date='106-01-01',
+        start_date='106-02-02',  # DEBUG
     )
 
     if flask.request.method == 'POST':
@@ -60,4 +61,5 @@ def receive():
         user_nms=manager.conductors.user_nm,
     )
 
-app.run(host='0.0.0.0', port=1234)
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=1234)
