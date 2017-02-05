@@ -19,24 +19,31 @@ DEBUG = True
 
 
 class Document(object):
+    class _Branch(object):
+        def __init__(self, id_, checked, receiver):
+            self.id_ = id_
+            self.checked = checked and not DEBUG  # DEBUG
+            self.receiver = receiver
+
     def __init__(self,
-                 ids,
-                 checked,
                  source,
                  source_no,
-                 receivers,
                  receive_datetime,
                  subject,
                  num_attachments):
 
-        self.ids = ids
-        self.checked = checked and False # DEBUG
+        self.branches = []
+
+        self.checked = True
         self.source = source
         self.source_no = source_no
-        self.receivers = receivers
         self.receive_datetime = receive_datetime
         self.subject = subject
         self.num_attachments = num_attachments
+
+    def add_branch(self, id_, checked, receiver):
+        self.branches.append(Document._Branch(id_, checked, receiver))
+        self.checked = self.checked and checked
 
 
 class Manager(object):
@@ -165,45 +172,41 @@ class Manager(object):
         )
         tr_batches = itertools.izip_longest(*[iter(trs)] * 2)
 
-        documents_by_source_no = collections.OrderedDict()
+        document_by_source_no = collections.OrderedDict()
 
         for (tr0, tr1) in tr_batches:
             tds = tr0.find_all('td')
-        
+
             if u'收文完成' not in tds[3].contents[1].string:
                 continue
 
-            id_ = int(urlparse.parse_qs(urlparse.urlparse(tr0['linkto']).query)['dilistid'][0])
-            source_no = u'{:s}字第{:d}號'.format(tds[5].string, int(tds[6].contents[1].string))
-            receiver = tds[9].contents[2].string
+            source_no = u'{:s}字第{:d}號'.format(tds[5].string, int(tds[6].contents[1].string)),
 
-            if source_no in documents_by_source_no:
-                document = documents_by_source_no[source_no]
-
-                document.ids.append(id_)
-                document.receivers.append(receiver)
-            else:
-                document = Document(
-                    ids=[id_],
-                    checked=tds[1].input.has_attr('checked'),
+            if source_no not in document_by_source_no:
+                document_by_source_no[source_no] = Document(
                     source=tds[4].contents[2].string,
                     source_no=source_no,
-                    receivers=[receiver],
                     receive_datetime=datetime.datetime.strptime(tds[8].string.split(' ')[0], '%Y/%m/%d'),
                     subject=tr1.contents[1].contents[2].string.strip().split(u'：', 1)[1],
                     num_attachments=int(tds[7].string),
                 )
-                documents_by_source_no[source_no] = document
 
-        return documents_by_source_no
+            document_by_source_no[source_no].add_branch(
+                id_=int(urlparse.parse_qs(urlparse.urlparse(tr0['linkto']).query)['dilistid'][0]),
+                checked=tds[1].input.has_attr('checked'),
+                receiver=tds[9].contents[2].string,
+            )
+
+        return document_by_source_no
 
     def receive_detail(self, document):
         document.attachments = {}
-        for (num, id_) in enumerate(document.ids):
+
+        for (num_branch, branch) in enumerate(document.branches):
             params = {
                 'menuCode': 'RECVQRY',
                 'detail': 'showdetail',
-                'dilistid': id_,
+                'dilistid': branch.id_,
                 'listid': '',
             }
 
@@ -212,7 +215,7 @@ class Manager(object):
             table = soup.find('table', id='Table1')
             trs = table.find_all('tr')
 
-            if num == 0:
+            if num_branch == 0:
                 tds = trs[1].find_all('td')
                 document.paper_nm = tds[3].string
                 document.speed_nm = tds[1].string
@@ -224,26 +227,30 @@ class Manager(object):
 
             input_ = soup.find('input', value=u'下載PDF')
             match = re.search('(\'(?P<url>..*)\')', input_['onclick'])
-            pdf_name = u'{:s}.pdf'.format(document.subject[:8])
+            if len(document.branches) == 1:
+                pdf_name = u'{:s}.pdf'.format(document.source_no)
+            else:
+                pdf_name = u'{:s}_{:s}.pdf'.format(document.source_no, branch.receiver)
             document.attachments[pdf_name] = match.group('url')
 
-
     def set_checked(self, document):
-        document.checked = not document.checked
+        for branch in document.branches:
+            branch.checked = True
 
         if DEBUG:
             return
 
-        params = {
-            '_': int(time.time() * 1000),
-            'menuCode': 'RECVQRY',
-            'showhtml': 'empty',
-            'action': 'settag',
-            'dilistid': document.id_,
-            'tagvalue': int(document.checked),
-        }
+        for branch in document.branches:
+            params = {
+                '_': int(time.time() * 1000),
+                'menuCode': 'RECVQRY',
+                'showhtml': 'empty',
+                'action': 'settag',
+                'dilistid': branch.id_,
+                'tagvalue': int(branch.checked),
+            }
 
-        r = self.eclient.get('webeClient/main.php', params=params)
+            self.eclient.get('webeClient/main.php', params=params)
 
     def save_files(self, document):
         document.receive_no = self.receive_no
@@ -256,19 +263,22 @@ class Manager(object):
 
         if not os.path.isdir(attachment_dir):
             os.mkdir(attachment_dir)
-        
+
         now = time.time()
         for (num_attachment, (name, url)) in enumerate(document.attachments.items()):
             r = self.eclient.get('webeClient/{:s}'.format(url), stream=True)
 
             attachment_path = os.path.join(
-                attachment_dir, 
+                attachment_dir,
+                name,
+            )
+            print_path = os.path.join(
+                self.print_path,
                 '{:d}_{:d}_{:s}'.format(document.receive_no, num_attachment, name),
             )
+
             with open(attachment_path, 'wb') as f:
                 shutil.copyfileobj(r.raw, f)
-
-            print_path = os.path.join(self.print_path, '{:.0f}_{:s}'.format(now, name))
             shutil.copyfile(attachment_path, print_path)
 
     def to_archive(self, document):
@@ -277,7 +287,7 @@ class Manager(object):
         archives = self.connection.select(
             from_='archive',
             fields={
-                'sno': 'sno', 
+                'sno': 'sno',
                 'receive_no': 'convert(int, receive_no)',
             },
             wheres=['Year(receive_date) = {:d}'.format(now.year)],
@@ -306,6 +316,7 @@ class Manager(object):
         )
 
         return archive
+
 
 class eClient(requests.Session):
     def __init__(self,
@@ -343,11 +354,18 @@ class Connection(pypyodbc.Connection):
         return 'rtrim(' + field + ')'
 
     @staticmethod
+    def pad(str_, func=unicode, pad=' '):
+        return pad + func(str_) + pad
+
+    @staticmethod
     def sentence(strs, func=unicode, sep=',', begin='', end='', default=''):
-        begin = begin + ' '
-        sep = ' ' + sep + ' '
-        end = ' ' + end
-        return (begin + sep.join(map(func, strs)) + end) if strs else default
+        return (
+            begin +
+            Connection.pad(
+                Connection.pad(sep).join(map(func, strs))
+            ) +
+            end
+        ) if strs else default
 
     def select(self,
                from_,
@@ -364,12 +382,12 @@ class Connection(pypyodbc.Connection):
             field_values = fields
 
         query = (
-            u'select {top}{field} '
-            u'from {from_} '
-            u'{where} '
+            u'select {top} {field} ' +
+            u'from {from_} ' +
+            u'{where} ' +
             u'{order_by} '
         ).format(
-            top='' if top is None else 'top {} '.format(top),
+            top='' if top is None else 'top {:s} '.format(top),
             field=Connection.sentence(field_values),
             from_=from_,
             where=Connection.sentence(wheres, sep='and', begin='where'),
@@ -397,7 +415,7 @@ class Connection(pypyodbc.Connection):
             value=Connection.sentence([
                 Connection.sentence(
                     row,
-                    func=lambda value: '\'' + unicode(value) + '\'',
+                    func=lambda str_: Connection.pad(str_, '\''),
                     begin='(',
                     end=')',
                 ) for row in df.itertuples(index=False)

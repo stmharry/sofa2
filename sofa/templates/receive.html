@@ -56,8 +56,8 @@
                                 <td>{{ document.receive_datetime.strftime("%Y-%m-%d") }}</td> 
                                 <td>{{ document.source_no }}</td>
                                 <td>
-                                {% for receiver in document.receivers %}
-                                    {{ receiver }}<br>
+                                {% for branch in document.branches %}
+                                    {{ branch.receiver }}<br>
                                 {% endfor %}
                                 </td>
                                 <td>{{ document.subject }}</td>

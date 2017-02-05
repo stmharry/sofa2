@@ -3,7 +3,7 @@
 import flask
 import flask_bootstrap
 
-from util import DEBUG, Document, Manager, eClient, Connection
+from util import DEBUG, Manager, eClient, Connection
 
 app = flask.Flask(__name__)
 app.debug = DEBUG
@@ -34,18 +34,18 @@ manager = Manager(
 def receive():
     messages = []
     alerts = []
-    documents_by_source_no = manager.receive()
+    document_by_source_no = manager.receive()
 
     if flask.request.method == 'POST':
         source_no = flask.request.form['source-no']
         conductor = flask.request.form['conductor']
 
-        document = documents_by_source_no[source_no]
+        document = document_by_source_no[source_no]
         document.user_nm = conductor
         manager.receive_detail(document)
-        
+
         connection.insert(
-            manager.to_archive(document), 
+            manager.to_archive(document),
             into='archive',
         )
 
@@ -58,7 +58,7 @@ def receive():
         'receive.html',
         messages=messages,
         alerts=alerts,
-        documents=set(documents_by_source_no.values()),
+        documents=document_by_source_no.values(),
         user_nms=manager.conductors.user_nm,
     )
 
