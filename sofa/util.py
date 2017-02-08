@@ -15,33 +15,53 @@ import urlparse
 
 pd.set_option('display.unicode.east_asian_width', True)
 
-DEBUG = False
+DEBUG = True
 
 
 class Document(object):
+    class _Branch(object):
+        def __init__(self, id_, checked, receiver):
+            self.id_ = id_
+            self.checked = checked and not DEBUG  # DEBUG
+            self.receiver = receiver
+
     def __init__(self,
-                 id_,
-                 checked,
                  source,
                  source_no,
-                 receiver,
                  receive_datetime,
                  subject,
                  num_attachments):
 
-        self.id_ = id_
-        self.checked = checked
+        self.branches = []
+
+        self.checked = True and not DEBUG  # DEBUG
+        self.sno = None
         self.source = source
         self.source_no = source_no
-        self.receiver = receiver
+        self.source_is_self = u'保七三大' in source_no
+        self.receive_no = None
         self.receive_datetime = receive_datetime
         self.subject = subject
         self.num_attachments = num_attachments
 
+    def add_branch(self, id_, checked, receiver):
+        self.branches.append(Document._Branch(id_, checked, receiver))
+        self.checked = self.checked and checked
+
 
 class Manager(object):
+    PRINT_ONLY = u'僅列印'
+
     @staticmethod
-    def code(item):
+    def time_str(time):
+        return '{:d}-{:02d}-{:02d}'.format(
+            time.year - 1911,
+            time.month,
+            time.day,
+        )
+
+    @staticmethod
+    def code_str(item):
         return u'{item.code_no} {item.code_nm}'.format(item=item)
 
     def __init__(self,
@@ -50,6 +70,11 @@ class Manager(object):
 
         self.eclient = eclient
         self.connection = connection
+        self.debug_messages = []
+        self.alerts = []
+
+        self.print_path = u'\\\\隊本部收發\\收發\\公文附件\\列印'  # DEBUG
+
         self.conductors = connection.select(
             from_='conductor',
             fields={
@@ -63,8 +88,6 @@ class Manager(object):
         self.conductors.loc[self.conductors.user_nm == u'曾明欽', 'path'] = u'\\\\隊本部收發\\收發\\公文附件\\曾明欽'  # DEBUG
         self.conductors.loc[self.conductors.user_nm == u'劉晃', 'path'] = u'\\\\隊本部收發\\收發\\公文附件\\劉晃'  # DEBUG
         self.conductors.loc[self.conductors.user_nm == u'蔣招祺', 'path'] = u'\\\\隊本部收發\\收發\\公文附件\\招祺'  # DEBUG
-
-        self.print_path = u'\\\\隊本部收發\\收發\\公文附件\\列印'  # DEBUG
 
         self.secrets = connection.select(
             from_='secret',
@@ -93,9 +116,9 @@ class Manager(object):
         book_default = self.books[self.books.code_no == '1'].iloc[0]
 
         self.archive_default = pd.DataFrame([{
-            'secret': Manager.code(secret_default),
-            'paper': Manager.code(paper_default),
-            'book': Manager.code(book_default),
+            'secret': Manager.code_str(secret_default),
+            'paper': Manager.code_str(paper_default),
+            'book': Manager.code_str(book_default),
             'speed': u'普通件',
             'archive_no': 1,
             'process_days': 0.5,
@@ -103,25 +126,29 @@ class Manager(object):
             'ymm_user': u'系統管理員',
         }])
 
+    def process(self, document, conductor):
+        document.user_nm = conductor
+        document.print_only = (conductor == Manager.PRINT_ONLY)
+
+        self.receive_detail(document)
+        if not document.print_only:
+            self.insert(document)
+        self.save_as_print(document)
+        if not document.print_only:
+            self.save_as_attachment(document)
+        self.success(document)
+
     def receive(self,
                 source_word='',
                 source_number='',
-                source_id='',
                 source='',
                 subject='',
-                full_compare=0,
-                query_time='create_time',
-                start_date=None,
-                start_hour=0,
-                end_date=None,
-                end_hour=23):
+                start_datetime=None,
+                end_datetime=None):
 
         now = datetime.datetime.now()
-        now_str = '{:d}-{:02d}-{:02d}'.format(
-            now.year - 1911,
-            now.month,
-            now.day,
-        )
+        start_datetime = start_datetime or (now - datetime.timedelta(weeks=1))
+        end_datetime = end_datetime or now
 
         params = {
             'menuCode': 'RECVQRY',
@@ -130,14 +157,14 @@ class Manager(object):
             'doc_word': source_word,
             'doc_no': source_number,
             'doc_title': subject,
-            'full_compare': full_compare,
-            'senderid': source_id,
+            'full_compare': 0,
+            'senderid': '',
             'sendername': source,
-            'query_time': query_time,
-            'startDate': start_date or now_str,
-            'sHour': start_hour,
-            'endDate': end_date or now_str,
-            'eHour': end_hour,
+            'query_time': 'create_time',
+            'startDate': Manager.time_str(start_datetime),
+            'sHour': '00',
+            'endDate': Manager.time_str(end_datetime),
+            'eHour': '23',
             'noteonly': 2,
             'pn': 0,
             'ifquery_recvqry': 1,
@@ -153,124 +180,100 @@ class Manager(object):
         )
         tr_batches = itertools.izip_longest(*[iter(trs)] * 2)
 
-        documents = collections.OrderedDict()
+        document_by_source_no = collections.OrderedDict()
+
         for (tr0, tr1) in tr_batches:
             tds = tr0.find_all('td')
-            id_ = int(urlparse.parse_qs(urlparse.urlparse(tr0['linkto']).query)['dilistid'][0])
 
-            if u'收文完成' in tds[3].contents[1].string:
-                documents[id_] = Document(
-                    id_=id_,
-                    checked=tds[1].input.has_attr('checked'),
+            if u'收文完成' not in tds[3].contents[1].string:
+                continue
+
+            source_no = u'{:s}字第{:d}號'.format(tds[5].string, int(tds[6].contents[1].string))
+            receive_datetime_str = tds[8].string.replace(u'上午', 'AM').replace(u'下午', 'PM')
+
+            if source_no not in document_by_source_no:
+                document_by_source_no[source_no] = Document(
                     source=tds[4].contents[2].string,
-                    source_no=u'{:s}字第{:d}號'.format(tds[5].string, int(tds[6].contents[1].string)),
-                    receiver=tds[9].contents[2].string,
-                    receive_datetime=datetime.datetime.strptime(tds[8].string.split(' ')[0], '%Y/%m/%d'),
+                    source_no=source_no,
+                    receive_datetime=datetime.datetime.strptime(receive_datetime_str, '%Y/%m/%d %p %I:%M:%S'),
                     subject=tr1.contents[1].contents[2].string.strip().split(u'：', 1)[1],
                     num_attachments=int(tds[7].string),
                 )
 
-        return documents
+            document_by_source_no[source_no].add_branch(
+                id_=int(urlparse.parse_qs(urlparse.urlparse(tr0['linkto']).query)['dilistid'][0]),
+                checked=tds[1].input.has_attr('checked'),
+                receiver=tds[9].contents[2].string,
+            )
+
+        return document_by_source_no
 
     def receive_detail(self, document):
-        params = {
-            'menuCode': 'RECVQRY',
-            'detail': 'showdetail',
-            'dilistid': document.id_,
-            'listid': '',
-        }
+        document.attachments = []
 
-        r = self.eclient.get('webeClient/main.php', params=params)
-        soup = bs4.BeautifulSoup(r.content, 'html.parser')
-        table = soup.find('table', id='Table1')
-        trs = table.find_all('tr')
+        for branch in document.branches:
+            params = {
+                'menuCode': 'RECVQRY',
+                'detail': 'showdetail',
+                'dilistid': branch.id_,
+                'listid': '',
+            }
+
+            r = self.eclient.get('webeClient/main.php', params=params)
+            soup = bs4.BeautifulSoup(r.content, 'html.parser')
+            table = soup.find('table', id='Table1')
+            trs = table.find_all('tr')
+
+            input_ = soup.find('input', value=u'下載PDF')
+            match = re.search('(\'(?P<url>..*)\')', input_['onclick'])
+            if len(document.branches) == 1:
+                pdf_name = u'{:s}.pdf'.format(document.source_no)
+            else:
+                pdf_name = u'{:s}_{:s}.pdf'.format(document.source_no, branch.receiver)
+
+            document.attachments.append({
+                'name': pdf_name,
+                'url': match.group('url'),
+            })
 
         tds = trs[1].find_all('td')
         document.paper_nm = tds[3].string
         document.speed_nm = tds[1].string
 
-        document.attachments = {}
-
-        input_ = soup.find('input', value=u'下載PDF')
-        match = re.search('(\'(?P<url>..*)\')', input_['onclick'])
-        pdf_name = u'{:s}.pdf'.format(document.subject[:8])
-        document.attachments[pdf_name] = match.group('url')
-
         as_ = trs[4].find_all('a')
         for a_ in as_[1:]:
             if not a_.string.endswith('.di') and not a_.string.endswith('.sw'):
-                document.attachments[a_.string] = a_['href']
-
-    def set_checked(self, document):
-        if DEBUG:
-            return
-
-        document.checked = not document.checked
-        params = {
-            '_': int(time.time() * 1000),
-            'menuCode': 'RECVQRY',
-            'showhtml': 'empty',
-            'action': 'settag',
-            'dilistid': document.id_,
-            'tagvalue': int(document.checked),
-        }
-
-        r = self.eclient.get('webeClient/main.php', params=params)
-
-    def save(self, document):
-        if DEBUG:
-            return
-
-        document.receive_no = self.receive_no
-
-        conductor = self.conductors[self.conductors.user_nm == document.user_nm].iloc[0]
-        attachment_dir = os.path.join(conductor.path, '{:04d}'.format(document.receive_no))
-
-        if not os.path.isdir(attachment_dir):
-            os.mkdir(attachment_dir)
-        
-        now = time.time()
-        for (num_attachment, (name, url)) in enumerate(document.attachments.items()):
-            r = self.eclient.get('webeClient/{:s}'.format(url), stream=True)
-
-            attachment_path = os.path.join(
-                attachment_dir, 
-                u'{:d}_{:d}_{:s}'.format(document.receive_no, num_attachment, name),
-            )
-            with open(attachment_path, 'wb') as f:
-
-                shutil.copyfileobj(r.raw, f)
-
-            print_path = os.path.join(self.print_path, u'{:.0f}_{:s}'.format(now, name))
-            shutil.copyfile(attachment_path, print_path)
-
-    def to_archive(self, document):
+                document.attachments.append({
+                    'name': a_.string,
+                    'url': a_['href'],
+                })
+                
+    def insert(self, document):
         now = datetime.datetime.now()
-
         archives = self.connection.select(
             from_='archive',
             fields={
-                'sno': 'sno', 
+                'sno': 'sno',
                 'receive_no': 'convert(int, receive_no)',
             },
             wheres=['Year(receive_date) = {:d}'.format(now.year)],
             order_bys=['sno desc'],
         )
         if archives.empty:
-            self.sno = 1
-            self.receive_no = 1
+            document.sno = 1
+            document.receive_no = 1
         else:
-            self.sno = archives.sno.max() + 1
-            self.receive_no = archives.receive_no.max() + 1
+            document.sno = archives.sno.max() + 1
+            document.receive_no = archives.receive_no.max() + 1
 
         archive = self.archive_default.copy().assign(
             ymm_year=now.year,
-            sno=self.sno,
-            receive_no=self.receive_no,
+            sno=document.sno,
+            receive_no=document.receive_no,
             receive_date='{:%Y/%m/%d}'.format(now),
             source=document.source,
             source_no=document.source_no,
-            paper=Manager.code(
+            paper=Manager.code_str(
                 item=self.papers[self.papers.code_nm == document.paper_nm].iloc[0],
             ),
             user_nm=document.user_nm,
@@ -278,7 +281,79 @@ class Manager(object):
             ymm_month=now.month,
         )
 
-        return archive
+        self.connection.insert(
+            archive,
+            into='archive',
+        )
+
+    def save_as_print(self, document):
+        for (num_attachment, attachment) in enumerate(document.attachments):
+            r = self.eclient.get('webeClient/{:s}'.format(attachment['url']), stream=True)
+
+            if document.receive_no is None:
+                no_str = document.source_no
+            else:
+                no_str = '{:04d}'.format(document.receive_no) 
+
+            attachment['print_path'] = os.path.join(
+                self.print_path,
+                u'{:s}_附件{:d}_{:s}'.format(no_str, num_attachment, attachment['name']),
+            )
+            self.debug_messages.append(u'save_as_print: print_path={:s}'.format(attachment['print_path']))  # DEBUG
+
+            if DEBUG:
+                continue
+            
+            with open(attachment['print_path'], 'wb') as f:
+                shutil.copyfileobj(r.raw, f)
+
+    def save_as_attachment(self, document):
+        conductor = self.conductors[self.conductors.user_nm == document.user_nm].iloc[0]
+        document.attachment_dir = os.path.join(conductor.path, '{:04d}'.format(document.receive_no))
+
+        for attachment in document.attachments:
+            attachment['attachment_path'] = os.path.join(
+                document.attachment_dir,
+                attachment['name'],
+            )
+            self.debug_messages.append(u'save_as_attachment: attachment_path={:s}'.format(attachment['attachment_path']))  # DEBUG
+
+            if DEBUG:
+                continue
+
+            if not os.path.isdir(document.attachment_dir):
+                os.mkdir(document.attachment_dir)
+            shutil.copyfile(attachment['print_path'], attachment['attachment_path'])
+
+    def success(self, document):
+        alert_clauses = []
+        alert_clauses.append(u'{:s} 已處理'.format(document.source_no))
+
+        if not document.print_only:
+            alert_clauses.append(u'收文號 {:d}'.format(document.receive_no))
+            alert_clauses.append(u'承辦人為 {:s}'.format(document.user_nm))
+
+        self.alerts.append(u'，'.join(alert_clauses))
+
+        document.checked = True
+        for branch in document.branches:
+            branch.checked = True
+
+        if DEBUG:
+            return
+
+        for branch in document.branches:
+            params = {
+                '_': int(time.time() * 1000),
+                'menuCode': 'RECVQRY',
+                'showhtml': 'empty',
+                'action': 'settag',
+                'dilistid': branch.id_,
+                'tagvalue': int(branch.checked),
+            }
+
+            self.eclient.get('webeClient/main.php', params=params)
+
 
 class eClient(requests.Session):
     def __init__(self,
@@ -316,11 +391,18 @@ class Connection(pypyodbc.Connection):
         return 'rtrim(' + field + ')'
 
     @staticmethod
+    def pad(str_, func=unicode, pad=' '):
+        return pad + func(str_) + pad
+
+    @staticmethod
     def sentence(strs, func=unicode, sep=',', begin='', end='', default=''):
-        begin = begin + ' '
-        sep = ' ' + sep + ' '
-        end = ' ' + end
-        return (begin + sep.join(map(func, strs)) + end) if strs else default
+        return (
+            begin +
+            Connection.pad(
+                Connection.pad(sep).join(map(func, strs))
+            ) +
+            end
+        ) if strs else default
 
     def select(self,
                from_,
@@ -337,12 +419,12 @@ class Connection(pypyodbc.Connection):
             field_values = fields
 
         query = (
-            u'select {top}{field} '
-            u'from {from_} '
-            u'{where} '
+            u'select {top} {field} ' +
+            u'from {from_} ' +
+            u'{where} ' +
             u'{order_by} '
         ).format(
-            top='' if top is None else 'top {} '.format(top),
+            top='' if top is None else 'top {:s} '.format(top),
             field=Connection.sentence(field_values),
             from_=from_,
             where=Connection.sentence(wheres, sep='and', begin='where'),
@@ -370,7 +452,7 @@ class Connection(pypyodbc.Connection):
             value=Connection.sentence([
                 Connection.sentence(
                     row,
-                    func=lambda value: '\'' + unicode(value) + '\'',
+                    func=lambda str_: Connection.pad(str_, pad='\''),
                     begin='(',
                     end=')',
                 ) for row in df.itertuples(index=False)

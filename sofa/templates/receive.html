@@ -21,20 +21,26 @@
 
 {% block content %}
     <div class="container">
-    {% for alert in alerts %}
-        <pre>{{ alert }}</pre>
+    {% for debug_message in manager.debug_messages %}
+        <pre>{{ debug_message }}</pre>
         <!--div class="alert alert-success" role="alert">
         </div-->
     {% endfor %}
+    {% for alert in manager.alerts %}
+        <div class="alert alert-success alert-dismissible" role="alert">
+            <button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+            {{ alert }}
+        </div>
+    {% endfor %}
         <div class="row">
-        {% for (id_, document) in documents.items() %}
-            <form id="{{ id_ }}" action="receive" method="post"></form>
+        {% for document in documents %}
+            <form id="{{ document.source_no }}" action="receive" method="post"></form>
         {% endfor %}
             <div class="form-group">
                 <table class="table">
                     <thead>
                         <tr>
-                            <th width="10%">日期</th>
+                            <th width="10%">時間</th>
                             <th width="20%">來文字號</th>
                             <th width="15%">收文者</th>
                             <th width="35%">主旨</th>
@@ -44,24 +50,28 @@
                         </tr>
                     </thead>
                     <tbody>
-                    {% for (id_, document) in documents.items() %}
-                        {% if not document.checked %}
+                    {% for document in documents %}
+                        {% if not document.checked and not document.source_is_self %}
                             <tr>
-                                <td>{{ document.receive_datetime.strftime("%Y-%m-%d") }}</td> 
+                                <td>{{ document.receive_datetime.strftime("%Y-%m-%d %H:%M:%S") }}</td> 
                                 <td>{{ document.source_no }}</td>
-                                <td>{{ document.receiver }}</td>
+                                <td>
+                                {% for branch in document.branches %}
+                                    {{ branch.receiver }}<br>
+                                {% endfor %}
+                                </td>
                                 <td>{{ document.subject }}</td>
                                 <td>{{ document.num_attachments }}</td>
                                 <td>
-                                    <select form="{{ id_ }}" class="form-control" name="conductor">
-                                        <option></option>
+                                    <select form="{{ document.source_no }}" class="form-control" name="conductor">
+                                        <option>{{ manager.PRINT_ONLY }}</option>
                                     {% for user_nm in user_nms %}
                                         <option>{{ user_nm }}</option>
                                     {% endfor %}
                                     </select>
                                 </td>
                                 <td>
-                                    <button form="{{ id_ }}" class="btn btn-primary" type="submit" name="id" value="{{ id_ }}">
+                                    <button form="{{ document.source_no }}" class="btn btn-primary" type="submit" name="source-no" value="{{ document.source_no }}">
                                         掛號
                                     </button>
                                 </td>
