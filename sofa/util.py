@@ -247,7 +247,7 @@ class Manager(object):
                     'name': a_.string,
                     'url': a_['href'],
                 })
-
+                
     def insert(self, document):
         now = datetime.datetime.now()
         archives = self.connection.select(
