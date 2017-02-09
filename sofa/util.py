@@ -15,7 +15,7 @@ import urlparse
 
 pd.set_option('display.unicode.east_asian_width', True)
 
-DEBUG = True
+DEBUG = False
 
 
 class Document(object):
@@ -431,7 +431,7 @@ class Connection(pypyodbc.Connection):
             order_by=Connection.sentence(order_bys, begin='order by'),
         )
 
-        print(query)
+        # print(query)
 
         df = pd.read_sql(query, con=self)
         if field_names is not None:
@@ -459,7 +459,7 @@ class Connection(pypyodbc.Connection):
             ]),
         )
 
-        print(query)
+        # print(query)
 
         if DEBUG:
             return
