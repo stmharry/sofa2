@@ -15,7 +15,7 @@ import urlparse
 
 pd.set_option('display.unicode.east_asian_width', True)
 
-DEBUG = True
+DEBUG = False
 
 
 class Document(object):
@@ -38,7 +38,7 @@ class Document(object):
         self.sno = None
         self.source = source
         self.source_no = source_no
-        self.source_is_self = u'保七三大' in source_no
+        self.source_is_self = re.search(u'保七三大[^中]*字', source_no) is not None
         self.receive_no = None
         self.receive_datetime = receive_datetime
         self.subject = subject
@@ -431,7 +431,7 @@ class Connection(pypyodbc.Connection):
             order_by=Connection.sentence(order_bys, begin='order by'),
         )
 
-        print(query)
+        # print(query)
 
         df = pd.read_sql(query, con=self)
         if field_names is not None:
@@ -459,7 +459,7 @@ class Connection(pypyodbc.Connection):
             ]),
         )
 
-        print(query)
+        # print(query)
 
         if DEBUG:
             return
