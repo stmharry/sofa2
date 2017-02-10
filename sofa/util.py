@@ -66,7 +66,8 @@ class Manager(object):
 
     def __init__(self,
                  eclient,
-                 connection):
+                 connection,
+                 config_path):
 
         self.eclient = eclient
         self.connection = connection
@@ -80,21 +81,20 @@ class Manager(object):
             fields={
                 'user_nm': Connection.rtrim('user_nm'),
             },
+            index_col='user_nm',
         )
-        self.conductors.loc[self.conductors.user_nm == u'莊俊傑', 'path'] = u'\\\\隊本部收發\\收發\\公文附件\\俊傑'  # DEBUG
-        self.conductors.loc[self.conductors.user_nm == u'粘銘進', 'path'] = u'\\\\隊本部收發\\收發\\公文附件\\銘進'  # DEBUG
-        self.conductors.loc[self.conductors.user_nm == u'林舜欽', 'path'] = u'\\\\隊本部收發\\收發\\公文附件\\舜欽'  # DEBUG
-        self.conductors.loc[self.conductors.user_nm == u'林鴻慶', 'path'] = u'\\\\隊本部收發\\收發\\公文附件\\鴻慶'  # DEBUG
-        self.conductors.loc[self.conductors.user_nm == u'曾明欽', 'path'] = u'\\\\隊本部收發\\收發\\公文附件\\曾明欽'  # DEBUG
-        self.conductors.loc[self.conductors.user_nm == u'劉晃', 'path'] = u'\\\\隊本部收發\\收發\\公文附件\\劉晃'  # DEBUG
-        self.conductors.loc[self.conductors.user_nm == u'蔣招祺', 'path'] = u'\\\\隊本部收發\\收發\\公文附件\\招祺'  # DEBUG
-
+        self.conductors.join(pd.read_csv(
+            config_path,
+            skipinitialspace=True,
+        ).set_index('user_nm', inplace=True))
+        
         self.secrets = connection.select(
             from_='secret',
             fields={
                 'code_no': Connection.rtrim('code_no'),
                 'code_nm': Connection.rtrim('code_nm'),
             },
+            index_col='code_nm',
         )
         self.papers = connection.select(
             from_='paper',
@@ -102,6 +102,7 @@ class Manager(object):
                 'code_no': Connection.rtrim('code_no'),
                 'code_nm': Connection.rtrim('code_nm'),
             },
+            index_col='code_nm',
         )
         self.books = connection.select(
             from_='book',
@@ -109,6 +110,7 @@ class Manager(object):
                 'code_no': Connection.rtrim('code_no'),
                 'code_nm': Connection.rtrim('code_nm'),
             },
+            index_col='code_nm',
         )
 
         secret_default = self.secrets[self.secrets.code_no == '1'].iloc[0]
@@ -125,6 +127,8 @@ class Manager(object):
             'measure': u'頁',
             'ymm_user': u'系統管理員',
         }])
+
+        
 
     def process(self, document, conductor):
         document.user_nm = conductor
@@ -408,6 +412,7 @@ class Connection(pypyodbc.Connection):
                from_,
                top=None,
                fields=['*'],
+               index_col=None,
                wheres=[],
                order_bys=[]):
 
@@ -434,8 +439,11 @@ class Connection(pypyodbc.Connection):
         # print(query)
 
         df = pd.read_sql(query, con=self)
+
         if field_names is not None:
             df.columns = field_names
+        if index_col is not None:
+            df.set_index(index_col, inplace=True)
         return df
 
     def insert(self,
