@@ -3,10 +3,10 @@
 import flask
 import flask_bootstrap
 
-from util import DEBUG, Manager, eClient, Connection
+from util import Manager, eClient, Connection
 
 app = flask.Flask(__name__)
-app.debug = DEBUG
+app.debug = True
 flask_bootstrap.Bootstrap(app)
 
 eclient = eClient(
@@ -27,6 +27,7 @@ connection = Connection(
 manager = Manager(
     eclient=eclient,
     connection=connection,
+    config_path='config.cfg',
 )
 
 
@@ -48,8 +49,8 @@ def receive():
         'receive.html',
         manager=manager,
         documents=document_by_source_no.values(),
-        user_nms=manager.conductors.user_nm,
+        user_nms=manager.conductors.index,
     )
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=1235)
+    app.run(host='0.0.0.0', port=1236)

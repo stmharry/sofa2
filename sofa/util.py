@@ -2,6 +2,8 @@
 
 import bs4
 import collections
+import configobj
+import cStringIO
 import datetime
 import itertools
 import pandas as pd
@@ -15,15 +17,31 @@ import urlparse
 
 pd.set_option('display.unicode.east_asian_width', True)
 
-DEBUG = False
+FLAG_CHECKED = False
+FLAG_INSERT = False
+FLAG_SAVE = True
 
 
 class Document(object):
     class _Branch(object):
         def __init__(self, id_, checked, receiver):
             self.id_ = id_
-            self.checked = checked and not DEBUG  # DEBUG
+            self.checked = checked and FLAG_CHECKED # DEBUG
             self.receiver = receiver
+
+    class _Attachment(object):
+        def __init__(self, name, buf):
+            self.name = name
+            self.buf = buf
+
+        def save(self, path):
+            dir_ = os.path.dirname(path)
+            if not os.path.isdir(dir_):
+                os.makedirs(dir_)
+                
+            with open(path, 'wb') as f:
+                self.buf.seek(0)
+                shutil.copyfileobj(self.buf, f)
 
     def __init__(self,
                  source,
@@ -33,8 +51,9 @@ class Document(object):
                  num_attachments):
 
         self.branches = []
+        self.attachments = []
 
-        self.checked = True and not DEBUG  # DEBUG
+        self.checked = True and FLAG_CHECKED  # DEBUG
         self.sno = None
         self.source = source
         self.source_no = source_no
@@ -45,12 +64,26 @@ class Document(object):
         self.num_attachments = num_attachments
 
     def add_branch(self, id_, checked, receiver):
-        self.branches.append(Document._Branch(id_, checked, receiver))
+        self.branches.append(
+            Document._Branch(
+                id_=id_, 
+                checked=checked, 
+                receiver=receiver,
+            )
+        )
         self.checked = self.checked and checked
+
+    def add_attachment(self, name, buf):
+        self.attachments.append(
+            Document._Attachment(
+                name=name,
+                buf=buf,
+            )
+        )
 
 
 class Manager(object):
-    PRINT_ONLY = u'僅列印'
+    PRINT_ONLY = u'列印'
 
     @staticmethod
     def time_str(time):
@@ -62,7 +95,7 @@ class Manager(object):
 
     @staticmethod
     def code_str(item):
-        return u'{item.code_no} {item.code_nm}'.format(item=item)
+        return u'{item.code_no} {item.name}'.format(item=item)
 
     def __init__(self,
                  eclient,
@@ -71,11 +104,13 @@ class Manager(object):
 
         self.eclient = eclient
         self.connection = connection
+        self.config = configobj.ConfigObj(config_path, encoding='utf-8')
         self.debug_messages = []
         self.alerts = []
 
-        self.print_path = u'\\\\隊本部收發\\收發\\公文附件\\列印'  # DEBUG
-
+        self.print_dir = self.config['print_dir']
+        if not os.path.isdir(self.print_dir):
+            os.mkdir(self.print_dir)
         self.conductors = connection.select(
             from_='conductor',
             fields={
@@ -83,10 +118,8 @@ class Manager(object):
             },
             index_col='user_nm',
         )
-        self.conductors.join(pd.read_csv(
-            config_path,
-            skipinitialspace=True,
-        ).set_index('user_nm', inplace=True))
+        for (user_nm, attachment_dir) in self.config['attachment_dir'].items():
+            self.conductors.loc[user_nm, 'attachment_dir'] = attachment_dir
         
         self.secrets = connection.select(
             from_='secret',
@@ -127,8 +160,6 @@ class Manager(object):
             'measure': u'頁',
             'ymm_user': u'系統管理員',
         }])
-
-        
 
     def process(self, document, conductor):
         document.user_nm = conductor
@@ -213,7 +244,7 @@ class Manager(object):
         return document_by_source_no
 
     def receive_detail(self, document):
-        document.attachments = []
+        attachment_names = set()
 
         for branch in document.branches:
             params = {
@@ -231,26 +262,29 @@ class Manager(object):
             input_ = soup.find('input', value=u'下載PDF')
             match = re.search('(\'(?P<url>..*)\')', input_['onclick'])
             if len(document.branches) == 1:
-                pdf_name = u'{:s}.pdf'.format(document.source_no)
+                name = u'{:s}.pdf'.format(document.source_no)
             else:
-                pdf_name = u'{:s}_{:s}.pdf'.format(document.source_no, branch.receiver)
+                name = u'{:s}_{:s}.pdf'.format(document.source_no, branch.receiver)
 
-            document.attachments.append({
-                'name': pdf_name,
-                'url': match.group('url'),
-            })
+            document.add_attachment(
+                name=name,
+                buf=self.eclient.download('webeClient/{:s}'.format(match.group('url'))),
+            )
+
+            as_ = trs[4].find_all('a')
+            for a_ in as_[1:]:
+                name = a_.string
+                if name.endswith('.di') or name.endswith('.sw') or name in attachment_names:
+                    continue
+
+                document.add_attachment(
+                    name=name,
+                    buf=self.eclient.download('webeClient/{:s}'.format(a_['href'])),
+                )
 
         tds = trs[1].find_all('td')
         document.paper_nm = tds[3].string
         document.speed_nm = tds[1].string
-
-        as_ = trs[4].find_all('a')
-        for a_ in as_[1:]:
-            if not a_.string.endswith('.di') and not a_.string.endswith('.sw'):
-                document.attachments.append({
-                    'name': a_.string,
-                    'url': a_['href'],
-                })
                 
     def insert(self, document):
         now = datetime.datetime.now()
@@ -278,12 +312,15 @@ class Manager(object):
             source=document.source,
             source_no=document.source_no,
             paper=Manager.code_str(
-                item=self.papers[self.papers.code_nm == document.paper_nm].iloc[0],
+                item=self.papers[self.papers.index == document.paper_nm].iloc[0],
             ),
             user_nm=document.user_nm,
             subject=document.subject,
             ymm_month=now.month,
         )
+
+        if not FLAG_INSERT:
+            return
 
         self.connection.insert(
             archive,
@@ -292,42 +329,35 @@ class Manager(object):
 
     def save_as_print(self, document):
         for (num_attachment, attachment) in enumerate(document.attachments):
-            r = self.eclient.get('webeClient/{:s}'.format(attachment['url']), stream=True)
-
             if document.receive_no is None:
                 no_str = document.source_no
             else:
                 no_str = '{:04d}'.format(document.receive_no) 
 
-            attachment['print_path'] = os.path.join(
-                self.print_path,
-                u'{:s}_附件{:d}_{:s}'.format(no_str, num_attachment, attachment['name']),
+            path = os.path.join(
+                self.print_dir,
+                u'{:s}_附件{:d}_{:s}'.format(no_str, num_attachment, attachment.name),
             )
-            self.debug_messages.append(u'save_as_print: print_path={:s}'.format(attachment['print_path']))  # DEBUG
 
-            if DEBUG:
+            if not FLAG_SAVE:
                 continue
             
-            with open(attachment['print_path'], 'wb') as f:
-                shutil.copyfileobj(r.raw, f)
+            attachment.save(path)
 
     def save_as_attachment(self, document):
-        conductor = self.conductors[self.conductors.user_nm == document.user_nm].iloc[0]
-        document.attachment_dir = os.path.join(conductor.path, '{:04d}'.format(document.receive_no))
+        conductor = self.conductors.loc[document.user_nm]
+        document.attachment_dir = os.path.join(conductor.attachment_dir, '{:04d}'.format(document.receive_no))
 
         for attachment in document.attachments:
-            attachment['attachment_path'] = os.path.join(
+            path = os.path.join(
                 document.attachment_dir,
-                attachment['name'],
+                attachment.name,
             )
-            self.debug_messages.append(u'save_as_attachment: attachment_path={:s}'.format(attachment['attachment_path']))  # DEBUG
 
-            if DEBUG:
+            if not FLAG_SAVE:
                 continue
 
-            if not os.path.isdir(document.attachment_dir):
-                os.mkdir(document.attachment_dir)
-            shutil.copyfile(attachment['print_path'], attachment['attachment_path'])
+            attachment.save(path)
 
     def success(self, document):
         alert_clauses = []
@@ -343,7 +373,7 @@ class Manager(object):
         for branch in document.branches:
             branch.checked = True
 
-        if DEBUG:
+        if not FLAG_SAVE:
             return
 
         for branch in document.branches:
@@ -387,6 +417,12 @@ class eClient(requests.Session):
 
     def post(self, url, *args, **kwargs):
         return super(eClient, self).post(self.route(url), *args, **kwargs)
+
+    def download(self, url):
+        r = super(eClient, self).get(self.route(url), stream=True)
+        buf = cStringIO.StringIO()
+        shutil.copyfileobj(r.raw, buf)
+        return buf
 
 
 class Connection(pypyodbc.Connection):
@@ -436,8 +472,6 @@ class Connection(pypyodbc.Connection):
             order_by=Connection.sentence(order_bys, begin='order by'),
         )
 
-        # print(query)
-
         df = pd.read_sql(query, con=self)
 
         if field_names is not None:
@@ -466,11 +500,6 @@ class Connection(pypyodbc.Connection):
                 ) for row in df.itertuples(index=False)
             ]),
         )
-
-        # print(query)
-
-        if DEBUG:
-            return
 
         cursor = self.cursor()
         cursor.execute(query)
