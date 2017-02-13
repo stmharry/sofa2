@@ -26,30 +26,32 @@
         <!--div class="alert alert-success" role="alert">
         </div-->
     {% endfor %}
+    {% if document is not none %}
         <div class="alert alert-success alert-dismissible" role="alert">
             <button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button>
             <h4>以下文件已處理完成</h4>
             <hr>
             <dl class="dl-horizontal">
                 <dt>來文號</dt>
-                <dd>{{ successful_document.source_no }}</dd>
-                {% if not successful_document.print_only %}
+                <dd>{{ document.source_no }}</dd>
+                {% if not document.print_only %}
                     <dt>收文號</dt>
-                    <dd>{{ successful_document.receive_no }}</dd>
+                    <dd>{{ document.receive_no }}</dd>
                     <dt>承辦人</dt>
-                    <dd>{{ successful_document.user_nm }}</dd>
+                    <dd>{{ document.user_nm }}</dd>
                 {% endif %}
                 <dt>主旨</dt>
-                <dd>{{ successful_document.subject }}</dd>
+                <dd>{{ document.subject }}</dd>
                 <dt>附件</dt>
                 <dd>
-                {% for attachment in successful_document.attachments %}
+                {% for attachment in document.attachments %}
                     {{ attachment.name }}
                     <br>
                 {% endfor %}
                 </dd>
             </dl>
         </div>
+    {% endif %}
         <div class="row">
         {% for document in documents %}
             <form id="{{ document.source_no }}" action="receive" method="post"></form>

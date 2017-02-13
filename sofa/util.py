@@ -388,29 +388,38 @@ class eClient(requests.Session):
 
         super(eClient, self).__init__()
         self.server = server
+        self.userid = userid
+        self.passwd = passwd
 
         self.headers.update({'referer': ''})
+
+    def route(self, url):
+        return urlparse.urljoin(self.server, url)
+
+    def request(self, method, url, **kwargs):
+        return super(eClient, self).request(method, self.route(url), **kwargs)
+
+    def get(self, url, params=None, **kwargs):
+        return self.request('get', url, params=params, **kwargs)
+
+    def post(self, url, data=None, json=None, **kwargs):
+        return self.request('post', url, data=data, json=json, **kwargs)
+
+    def login(self):
         self.post(
             'webeClient/menu.php',
             data={
                 'login': 1,
-                'userid': userid,
-                'passwd': passwd,
+                'userid': self.userid,
+                'passwd': self.passwd,
             },
         )
 
-    def route(self, url):
-        url = urlparse.urljoin(self.server, url)
-        return url
-
-    def get(self, url, *args, **kwargs):
-        return super(eClient, self).get(self.route(url), *args, **kwargs)
-
-    def post(self, url, *args, **kwargs):
-        return super(eClient, self).post(self.route(url), *args, **kwargs)
-
     def download(self, url):
-        r = super(eClient, self).get(self.route(url), stream=True)
+        r = self.get(
+            url, 
+            stream=True,
+        )
         buf = cStringIO.StringIO()
         shutil.copyfileobj(r.raw, buf)
         return buf

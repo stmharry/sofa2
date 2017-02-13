@@ -33,9 +33,12 @@ manager = Manager(
 
 @app.route('/receive', methods=['GET', 'POST'])
 def receive():
+    eclient.login()
+
     manager.debug_messages = []
     manager.alerts = []
     
+    document = None
     document_by_source_no = manager.receive()
 
     if flask.request.method == 'POST':
@@ -48,7 +51,7 @@ def receive():
     return flask.render_template(
         'receive.html',
         manager=manager,
-        successful_document=document,
+        document=document,
         documents=document_by_source_no.values(),
     )
 
