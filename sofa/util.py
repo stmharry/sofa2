@@ -38,7 +38,7 @@ class Document(object):
             dir_ = os.path.dirname(path)
             if not os.path.isdir(dir_):
                 os.makedirs(dir_)
-                
+
             with open(path, 'wb') as f:
                 self.buf.seek(0)
                 shutil.copyfileobj(self.buf, f)
@@ -62,6 +62,20 @@ class Document(object):
         self.receive_datetime = receive_datetime
         self.subject = subject
         self.num_attachments = num_attachments
+
+    def __unicode__(self):
+        if self.print_only:
+            format_str = '\n'.join([
+                u'來文號：{document.source_no:s}',
+            ])
+        else:
+            format_str = '\n'.join([
+                u'來文號：{document.source_no:s}',
+                u'收文號：{document.receive_no:d}',
+                u'承辦人：{document.user_nm:s}',
+            ])
+            
+        return format_str.format(document=self)
 
     def add_branch(self, id_, checked, receiver):
         self.branches.append(
@@ -332,7 +346,7 @@ class Manager(object):
             if document.receive_no is None:
                 no_str = document.source_no
             else:
-                no_str = '{:04d}'.format(document.receive_no) 
+                no_str = '{:04d}'.format(document.receive_no)
 
             path = os.path.join(
                 self.print_dir,
@@ -360,14 +374,7 @@ class Manager(object):
             attachment.save(path)
 
     def success(self, document):
-        alert_clauses = []
-        alert_clauses.append(u'{:s} 已處理'.format(document.source_no))
-
-        if not document.print_only:
-            alert_clauses.append(u'收文號 {:d}'.format(document.receive_no))
-            alert_clauses.append(u'承辦人為 {:s}'.format(document.user_nm))
-
-        self.alerts.append(u'，'.join(alert_clauses))
+        self.alerts.append(unicode(document))
 
         document.checked = True
         for branch in document.branches:
@@ -410,6 +417,7 @@ class eClient(requests.Session):
 
     def route(self, url):
         url = urlparse.urljoin(self.server, url)
+        print(url)
         return url
 
     def get(self, url, *args, **kwargs):
