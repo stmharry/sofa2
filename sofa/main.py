@@ -48,8 +48,8 @@ def receive():
     return flask.render_template(
         'receive.html',
         manager=manager,
+        successful_document=document,
         documents=document_by_source_no.values(),
-        user_nms=manager.conductors.index,
     )
 
 if __name__ == '__main__':

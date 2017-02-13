@@ -19,7 +19,7 @@ pd.set_option('display.unicode.east_asian_width', True)
 
 FLAG_CHECKED = False
 FLAG_INSERT = False
-FLAG_SAVE = True
+FLAG_SAVE = False
 
 
 class Document(object):
@@ -62,20 +62,6 @@ class Document(object):
         self.receive_datetime = receive_datetime
         self.subject = subject
         self.num_attachments = num_attachments
-
-    def __unicode__(self):
-        if self.print_only:
-            format_str = '\n'.join([
-                u'來文號：{document.source_no:s}',
-            ])
-        else:
-            format_str = '\n'.join([
-                u'來文號：{document.source_no:s}',
-                u'收文號：{document.receive_no:d}',
-                u'承辦人：{document.user_nm:s}',
-            ])
-            
-        return format_str.format(document=self)
 
     def add_branch(self, id_, checked, receiver):
         self.branches.append(
@@ -374,8 +360,6 @@ class Manager(object):
             attachment.save(path)
 
     def success(self, document):
-        self.alerts.append(unicode(document))
-
         document.checked = True
         for branch in document.branches:
             branch.checked = True
@@ -417,7 +401,6 @@ class eClient(requests.Session):
 
     def route(self, url):
         url = urlparse.urljoin(self.server, url)
-        print(url)
         return url
 
     def get(self, url, *args, **kwargs):
