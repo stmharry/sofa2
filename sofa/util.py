@@ -7,9 +7,13 @@ import cStringIO
 import datetime
 import itertools
 import pandas as pd
+import PyPDF2
 import pypyodbc
 import os
 import re
+import reportlab.pdfbase.pdfmetrics
+import reportlab.pdfbase.ttfonts
+import reportlab.pdfgen.canvas
 import requests
 import shutil
 import time
@@ -19,18 +23,19 @@ pd.set_option('display.unicode.east_asian_width', True)
 
 FLAG_CHECKED = False
 FLAG_INSERT = False
-FLAG_SAVE = False
+FLAG_SAVE = True
 
 
 class Manager(object):
     PRINT_ONLY = u'列印'
 
     @staticmethod
-    def time_str(t):
-        return '{:d}-{:02d}-{:02d}'.format(
-            t.year - 1911,
-            t.month,
-            t.day,
+    def time_str(t, sep):
+        return '{year:d}{sep}{month:02d}{sep}{day:02d}'.format(
+            year=t.year - 1911,
+            month=t.month,
+            day=t.day,
+            sep=sep,
         )
 
     @staticmethod
@@ -45,6 +50,7 @@ class Manager(object):
         self.eclient = eclient
         self.connection = connection
         self.config = configobj.ConfigObj(config_path, encoding='utf-8')
+        self.stamp = Stamp(self.config['stamp'])
         self.debug_messages = []
         self.alerts = []
 
@@ -136,9 +142,9 @@ class Manager(object):
             'senderid': '',
             'sendername': source,
             'query_time': 'create_time',
-            'startDate': Manager.time_str(start_datetime),
+            'startDate': Manager.time_str(start_datetime, sep='-'),
             'sHour': '00',
-            'endDate': Manager.time_str(end_datetime),
+            'endDate': Manager.time_str(end_datetime, sep='-'),
             'eHour': '23',
             'noteonly': 2,
             'pn': 0,
@@ -288,7 +294,14 @@ class Manager(object):
 
             if not FLAG_SAVE:
                 continue
-            
+
+            if attachment.is_main:
+                attachment = self.stamp.stamp(
+                    attachment,
+                    date_str=Manager.time_str(document.receive_datetime, sep='.'),
+                    no_str='{:03d}{:07d}'.format(document.receive_datetime.year - 1911, document.receive_no),
+                )
+
             attachment.save(path)
 
     def save_as_attachment(self, document):
@@ -327,29 +340,107 @@ class Manager(object):
             self.eclient.get('webeClient/main.php', params=params)
 
 
+class Stamp(object):
+    @staticmethod
+    def cm_to_pt(cm):
+        return 28.35 * cm
+
+    def __init__(self, config):
+        self.config = config
+
+        for (font_name, font_file) in config['font'].items():
+            reportlab.pdfbase.pdfmetrics.registerFont(
+                reportlab.pdfbase.ttfonts.TTFont(font_name, font_file),
+            )
+
+    def stamp(self, attachment, date_str, no_str):
+        f_stamp = cStringIO.StringIO()
+        canvas = reportlab.pdfgen.canvas.Canvas(f_stamp)
+
+        config = self.config['image']
+        canvas.drawImage(
+            config['file'],
+            Stamp.cm_to_pt(config.as_float('left')),
+            Stamp.cm_to_pt(config.as_float('bottom')),
+            width=Stamp.cm_to_pt(config.as_float('width')),
+            height=Stamp.cm_to_pt(config.as_float('height')),
+            mask='auto',
+        )
+
+        config = self.config['date']
+        canvas.setFont(
+            config['font'],
+            config.as_float('size'),
+        )
+        canvas.drawCentredString(
+            Stamp.cm_to_pt(config.as_float('left')),
+            Stamp.cm_to_pt(config.as_float('bottom')),
+            date_str,
+        )
+
+        config = self.config['no']
+        canvas.setFont(
+            config['font'],
+            config.as_float('size'),
+        )
+        canvas.drawCentredString(
+            Stamp.cm_to_pt(config.as_float('left')),
+            Stamp.cm_to_pt(config.as_float('bottom')),
+            no_str,
+        )
+
+        canvas.save()
+
+        f_in = attachment.buf
+        f_in.seek(0)
+        reader_in = PyPDF2.PdfFileReader(f_in)
+
+        f_stamp.seek(0)
+        page_stamp = PyPDF2.PdfFileReader(f_stamp).getPage(0)
+
+        f_out = cStringIO.StringIO()
+        writer = PyPDF2.PdfFileWriter()
+
+        for num_page in xrange(reader_in.getNumPages()):
+            page = reader_in.getPage(0)
+            if num_page == 0:
+                page.mergePage(page_stamp)
+            writer.addPage(page)
+
+        writer.write(f_out)
+
+        return Attachment(
+            name=attachment.name,
+            buf=f_out,
+            is_main=attachment.is_main,
+        )
+
+
+class Branch(object):
+    def __init__(self, id_, checked, receiver):
+        self.id_ = id_
+        self.checked = checked and FLAG_CHECKED  # DEBUG
+        self.receiver = receiver
+        self.is_main = re.search(u'(第三|本)大隊[^中]*$', receiver) is not None
+
+
+class Attachment(object):
+    def __init__(self, name, buf, is_main):
+        self.name = name
+        self.buf = buf
+        self.is_main = is_main
+
+    def save(self, path):
+        dir_ = os.path.dirname(path)
+        if not os.path.isdir(dir_):
+            os.makedirs(dir_)
+
+        with open(path, 'wb') as f:
+            self.buf.seek(0)
+            shutil.copyfileobj(self.buf, f)
+
+
 class Document(object):
-    class _Branch(object):
-        def __init__(self, id_, checked, receiver):
-            self.id_ = id_
-            self.checked = checked and FLAG_CHECKED  # DEBUG
-            self.receiver = receiver
-            self.is_main = re.search(u'(第三|本)大隊[^中]*$', receiver) is not None
-
-    class _Attachment(object):
-        def __init__(self, name, buf, is_main):
-            self.name = name
-            self.buf = buf
-            self.is_main = is_main
-
-        def save(self, path):
-            dir_ = os.path.dirname(path)
-            if not os.path.isdir(dir_):
-                os.makedirs(dir_)
-
-            with open(path, 'wb') as f:
-                self.buf.seek(0)
-                shutil.copyfileobj(self.buf, f)
-
     def __init__(self,
                  source,
                  source_no,
@@ -372,7 +463,7 @@ class Document(object):
 
     def add_branch(self, id_, checked, receiver):
         self.branches.append(
-            self._Branch(
+            Branch(
                 id_=id_,
                 checked=checked,
                 receiver=receiver,
@@ -380,11 +471,12 @@ class Document(object):
         )
         self.checked = self.checked and checked
 
-    def add_attachment(self, name, buf):
+    def add_attachment(self, name, buf, is_main):
         self.attachments.append(
-            self._Attachment(
+            Attachment(
                 name=name,
                 buf=buf,
+                is_main=is_main,
             )
         )
 
