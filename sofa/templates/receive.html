@@ -26,12 +26,32 @@
         <!--div class="alert alert-success" role="alert">
         </div-->
     {% endfor %}
-    {% for alert in manager.alerts %}
+    {% if document is not none %}
         <div class="alert alert-success alert-dismissible" role="alert">
             <button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button>
-            {{ alert }}
+            <h4>以下文件已處理完成</h4>
+            <hr>
+            <dl class="dl-horizontal">
+                <dt>來文號</dt>
+                <dd>{{ document.source_no }}</dd>
+                {% if not document.print_only %}
+                    <dt>收文號</dt>
+                    <dd>{{ document.receive_no }}</dd>
+                    <dt>承辦人</dt>
+                    <dd>{{ document.user_nm }}</dd>
+                {% endif %}
+                <dt>主旨</dt>
+                <dd>{{ document.subject }}</dd>
+                <dt>附件</dt>
+                <dd>
+                {% for attachment in document.attachments %}
+                    {{ attachment.name }}
+                    <br>
+                {% endfor %}
+                </dd>
+            </dl>
         </div>
-    {% endfor %}
+    {% endif %}
         <div class="row">
         {% for document in documents %}
             <form id="{{ document.source_no }}" action="receive" method="post"></form>
@@ -65,7 +85,7 @@
                                 <td>
                                     <select form="{{ document.source_no }}" class="form-control" name="conductor">
                                         <option>{{ manager.PRINT_ONLY }}</option>
-                                    {% for user_nm in user_nms %}
+                                    {% for user_nm in manager.conductors.index %}
                                         <option>{{ user_nm }}</option>
                                     {% endfor %}
                                     </select>

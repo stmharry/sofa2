@@ -3,10 +3,10 @@
 import flask
 import flask_bootstrap
 
-from util import DEBUG, Manager, eClient, Connection
+from util import Manager, eClient, Connection
 
 app = flask.Flask(__name__)
-app.debug = DEBUG
+app.debug = True
 flask_bootstrap.Bootstrap(app)
 
 eclient = eClient(
@@ -27,14 +27,18 @@ connection = Connection(
 manager = Manager(
     eclient=eclient,
     connection=connection,
+    config_path='config.cfg',
 )
 
 
 @app.route('/receive', methods=['GET', 'POST'])
 def receive():
+    eclient.login()
+
     manager.debug_messages = []
     manager.alerts = []
     
+    document = None
     document_by_source_no = manager.receive()
 
     if flask.request.method == 'POST':
@@ -47,9 +51,9 @@ def receive():
     return flask.render_template(
         'receive.html',
         manager=manager,
+        document=document,
         documents=document_by_source_no.values(),
-        user_nms=manager.conductors.user_nm,
     )
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=1235)
+    app.run(host='0.0.0.0', port=1234)
