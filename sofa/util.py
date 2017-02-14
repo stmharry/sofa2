@@ -21,8 +21,8 @@ import urlparse
 
 pd.set_option('display.unicode.east_asian_width', True)
 
-FLAG_CHECKED = False
-FLAG_INSERT = False
+FLAG_CHECKED = True
+FLAG_INSERT = True
 FLAG_SAVE = True
 
 
@@ -402,7 +402,7 @@ class Stamp(object):
         writer = PyPDF2.PdfFileWriter()
 
         for num_page in xrange(reader_in.getNumPages()):
-            page = reader_in.getPage(0)
+            page = reader_in.getPage(num_page)
             if num_page == 0:
                 page.mergePage(page_stamp)
             writer.addPage(page)
