@@ -17,9 +17,9 @@ import urlparse
 
 pd.set_option('display.unicode.east_asian_width', True)
 
-FLAG_CHECKED = False
-FLAG_INSERT = False
-FLAG_SAVE = False
+FLAG_CHECKED = True
+FLAG_INSERT = True
+FLAG_SAVE = True
 
 
 class Document(object):
