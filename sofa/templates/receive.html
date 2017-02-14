@@ -77,7 +77,11 @@
                                 <td>{{ document.source_no }}</td>
                                 <td>
                                 {% for branch in document.branches %}
-                                    {{ branch.receiver }}<br>
+                                    {% if branch.is_main %}
+                                        <b>{{ branch.receiver }}</b><br>
+                                    {% else %}
+                                        {{ branch.receiver }}<br>
+                                    {% endif %}
                                 {% endfor %}
                                 </td>
                                 <td>{{ document.subject }}</td>

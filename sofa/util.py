@@ -17,80 +17,20 @@ import urlparse
 
 pd.set_option('display.unicode.east_asian_width', True)
 
-FLAG_CHECKED = True
-FLAG_INSERT = True
-FLAG_SAVE = True
-
-
-class Document(object):
-    class _Branch(object):
-        def __init__(self, id_, checked, receiver):
-            self.id_ = id_
-            self.checked = checked and FLAG_CHECKED # DEBUG
-            self.receiver = receiver
-
-    class _Attachment(object):
-        def __init__(self, name, buf):
-            self.name = name
-            self.buf = buf
-
-        def save(self, path):
-            dir_ = os.path.dirname(path)
-            if not os.path.isdir(dir_):
-                os.makedirs(dir_)
-
-            with open(path, 'wb') as f:
-                self.buf.seek(0)
-                shutil.copyfileobj(self.buf, f)
-
-    def __init__(self,
-                 source,
-                 source_no,
-                 receive_datetime,
-                 subject,
-                 num_attachments):
-
-        self.branches = []
-        self.attachments = []
-
-        self.checked = True and FLAG_CHECKED  # DEBUG
-        self.sno = None
-        self.source = source
-        self.source_no = source_no
-        self.source_is_self = re.search(u'保七三大[^中]*字', source_no) is not None
-        self.receive_no = None
-        self.receive_datetime = receive_datetime
-        self.subject = subject
-        self.num_attachments = num_attachments
-
-    def add_branch(self, id_, checked, receiver):
-        self.branches.append(
-            Document._Branch(
-                id_=id_, 
-                checked=checked, 
-                receiver=receiver,
-            )
-        )
-        self.checked = self.checked and checked
-
-    def add_attachment(self, name, buf):
-        self.attachments.append(
-            Document._Attachment(
-                name=name,
-                buf=buf,
-            )
-        )
+FLAG_CHECKED = False
+FLAG_INSERT = False
+FLAG_SAVE = False
 
 
 class Manager(object):
     PRINT_ONLY = u'列印'
 
     @staticmethod
-    def time_str(time):
+    def time_str(t):
         return '{:d}-{:02d}-{:02d}'.format(
-            time.year - 1911,
-            time.month,
-            time.day,
+            t.year - 1911,
+            t.month,
+            t.day,
         )
 
     @staticmethod
@@ -246,6 +186,11 @@ class Manager(object):
     def receive_detail(self, document):
         attachment_names = set()
 
+        if len(document.branches) == 1:
+            name_str = u'{document.source_no:s}.pdf'
+        else:
+            name_str = u'{document.source_no:s}_{branch.receiver:s}.pdf'
+
         for branch in document.branches:
             params = {
                 'menuCode': 'RECVQRY',
@@ -261,14 +206,11 @@ class Manager(object):
 
             input_ = soup.find('input', value=u'下載PDF')
             match = re.search('(\'(?P<url>..*)\')', input_['onclick'])
-            if len(document.branches) == 1:
-                name = u'{:s}.pdf'.format(document.source_no)
-            else:
-                name = u'{:s}_{:s}.pdf'.format(document.source_no, branch.receiver)
 
             document.add_attachment(
-                name=name,
+                name=name_str.format(document=document, branch=branch),
                 buf=self.eclient.download('webeClient/{:s}'.format(match.group('url'))),
+                is_main=branch.is_main and not document.print_only,
             )
 
             as_ = trs[4].find_all('a')
@@ -280,6 +222,7 @@ class Manager(object):
                 document.add_attachment(
                     name=name,
                     buf=self.eclient.download('webeClient/{:s}'.format(a_['href'])),
+                    is_main=False,
                 )
 
         tds = trs[1].find_all('td')
@@ -328,15 +271,19 @@ class Manager(object):
         )
 
     def save_as_print(self, document):
-        for (num_attachment, attachment) in enumerate(document.attachments):
-            if document.receive_no is None:
-                no_str = document.source_no
-            else:
-                no_str = '{:04d}'.format(document.receive_no)
+        if document.receive_no is None:
+            no_str = '{document.source_no:s}'
+        else:
+            no_str = '{document.receive_no:04d}'
 
+        for (num_attachment, attachment) in enumerate(document.attachments):
             path = os.path.join(
                 self.print_dir,
-                u'{:s}_附件{:d}_{:s}'.format(no_str, num_attachment, attachment.name),
+                (no_str + u'_附件{num_attachment:d}_{attachment.name:s}').format(
+                    document=document,
+                    num_attachment=num_attachment,
+                    attachment=attachment,
+                ),
             )
 
             if not FLAG_SAVE:
@@ -378,6 +325,68 @@ class Manager(object):
             }
 
             self.eclient.get('webeClient/main.php', params=params)
+
+
+class Document(object):
+    class _Branch(object):
+        def __init__(self, id_, checked, receiver):
+            self.id_ = id_
+            self.checked = checked and FLAG_CHECKED  # DEBUG
+            self.receiver = receiver
+            self.is_main = re.search(u'(第三|本)大隊[^中]*$', receiver) is not None
+
+    class _Attachment(object):
+        def __init__(self, name, buf, is_main):
+            self.name = name
+            self.buf = buf
+            self.is_main = is_main
+
+        def save(self, path):
+            dir_ = os.path.dirname(path)
+            if not os.path.isdir(dir_):
+                os.makedirs(dir_)
+
+            with open(path, 'wb') as f:
+                self.buf.seek(0)
+                shutil.copyfileobj(self.buf, f)
+
+    def __init__(self,
+                 source,
+                 source_no,
+                 receive_datetime,
+                 subject,
+                 num_attachments):
+
+        self.branches = []
+        self.attachments = []
+
+        self.checked = True and FLAG_CHECKED  # DEBUG
+        self.sno = None
+        self.source = source
+        self.source_no = source_no
+        self.source_is_self = re.search(u'保七三大[^中]*字', source_no) is not None
+        self.receive_no = None
+        self.receive_datetime = receive_datetime
+        self.subject = subject
+        self.num_attachments = num_attachments
+
+    def add_branch(self, id_, checked, receiver):
+        self.branches.append(
+            self._Branch(
+                id_=id_,
+                checked=checked,
+                receiver=receiver,
+            )
+        )
+        self.checked = self.checked and checked
+
+    def add_attachment(self, name, buf):
+        self.attachments.append(
+            self._Attachment(
+                name=name,
+                buf=buf,
+            )
+        )
 
 
 class eClient(requests.Session):
@@ -447,10 +456,14 @@ class Connection(pypyodbc.Connection):
     def select(self,
                from_,
                top=None,
-               fields=['*'],
+               fields=None,
                index_col=None,
-               wheres=[],
-               order_bys=[]):
+               wheres=None,
+               order_bys=None):
+
+        fields = fields or ['*']
+        wheres = wheres or []
+        order_bys = order_bys or []
 
         if isinstance(fields, dict):
             field_names = fields.keys()
