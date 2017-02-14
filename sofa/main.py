@@ -6,7 +6,7 @@ import flask_bootstrap
 from util import Manager, eClient, Connection
 
 app = flask.Flask(__name__)
-app.debug = True
+app.debug = False
 flask_bootstrap.Bootstrap(app)
 
 eclient = eClient(
