@@ -51,8 +51,6 @@ class Manager(object):
         self.connection = connection
         self.config = configobj.ConfigObj(config_path, encoding='utf-8')
         self.stamp = Stamp(self.config['stamp'])
-        self.debug_messages = []
-        self.alerts = []
 
         self.print_dir = self.config['print_dir']
         if not os.path.isdir(self.print_dir):
@@ -106,6 +104,12 @@ class Manager(object):
             'measure': u'頁',
             'ymm_user': u'系統管理員',
         }])
+
+        self.reset_messages()
+
+    def reset_messages(self):
+        self.debug_messages = []
+        self.alerts = []
 
     def process(self, document, conductor):
         document.user_nm = conductor
@@ -485,29 +489,35 @@ class eClient(requests.Session):
     def __init__(self,
                  server,
                  userid,
-                 passwd):
+                 passwd,
+                 timeout=1.0):
 
         super(eClient, self).__init__()
         self.server = server
         self.userid = userid
         self.passwd = passwd
+        self.timeout = timeout
 
         self.headers.update({'referer': ''})
+        self.login()
 
-    def route(self, url):
-        return urlparse.urljoin(self.server, url)
-
-    def request(self, method, url, **kwargs):
-        return super(eClient, self).request(method, self.route(url), **kwargs)
+    def _request(self, method, url, **kwargs):
+        return super(eClient, self).request(
+            method,
+            urlparse.urljoin(self.server, url),
+            timeout=self.timeout,
+            **kwargs
+        )
 
     def get(self, url, params=None, **kwargs):
-        return self.request('get', url, params=params, **kwargs)
+        return self._request('get', url, params=params, **kwargs)
 
     def post(self, url, data=None, json=None, **kwargs):
-        return self.request('post', url, data=data, json=json, **kwargs)
+        return self._request('post', url, data=data, json=json, **kwargs)
 
     def login(self):
-        self.post(
+        self._request(
+            'post',
             'webeClient/menu.php',
             data={
                 'login': 1,
@@ -517,7 +527,8 @@ class eClient(requests.Session):
         )
 
     def download(self, url):
-        r = self.get(
+        r = self._request(
+            'get',
             url, 
             stream=True,
         )

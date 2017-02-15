@@ -6,7 +6,7 @@ import flask_bootstrap
 from util import Manager, eClient, Connection
 
 app = flask.Flask(__name__)
-app.debug = False
+app.debug = True
 flask_bootstrap.Bootstrap(app)
 
 eclient = eClient(
@@ -33,20 +33,23 @@ manager = Manager(
 
 @app.route('/receive', methods=['GET', 'POST'])
 def receive():
-    eclient.login()
-
-    manager.debug_messages = []
-    manager.alerts = []
-    
     document = None
-    document_by_source_no = manager.receive()
+    document_by_source_no = {}
 
-    if flask.request.method == 'POST':
-        source_no = flask.request.form['source-no']
-        conductor = flask.request.form['conductor']
+    try:
+        manager.reset_messages()
+        eclient.login()
+        document_by_source_no = manager.receive()
 
-        document = document_by_source_no[source_no]
-        manager.process(document, conductor=conductor)
+        if flask.request.method == 'POST':
+            source_no = flask.request.form['source-no']
+            conductor = flask.request.form['conductor']
+
+            document = document_by_source_no[source_no]
+            manager.process(document, conductor=conductor)
+
+    except Exception as e:
+        manager.alerts.append(unicode(e))
 
     return flask.render_template(
         'receive.html',
