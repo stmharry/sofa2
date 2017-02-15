@@ -425,7 +425,7 @@ class Branch(object):
         self.id_ = id_
         self.checked = checked and FLAG_CHECKED  # DEBUG
         self.receiver = receiver
-        self.is_main = re.search(u'(第三|本)大隊[^中]*$', receiver) is not None
+        self.is_main = re.search(u'(第三|本)大隊[^(中隊|隊長)]*$', receiver) is not None
 
 
 class Attachment(object):
