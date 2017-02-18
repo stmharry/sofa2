@@ -49,8 +49,10 @@ class Manager(object):
 
         self.eclient = eclient
         self.connection = connection
-        self.config = configobj.ConfigObj(config_path, encoding='utf-8')
-        self.stamp = Stamp(self.config['stamp'])
+
+        config = configobj.ConfigObj(config_path, encoding='utf-8')
+        self.config = config['manager']
+        self.stamp = Stamp(config['stamp'])
 
         self.print_dir = self.config['print_dir']
         if not os.path.isdir(self.print_dir):
@@ -64,7 +66,7 @@ class Manager(object):
         )
         for (user_nm, attachment_dir) in self.config['attachment_dir'].items():
             self.conductors.loc[user_nm, 'attachment_dir'] = attachment_dir
-        
+
         self.secrets = connection.select(
             from_='secret',
             fields={
@@ -238,7 +240,7 @@ class Manager(object):
         tds = trs[1].find_all('td')
         document.paper_nm = tds[3].string
         document.speed_nm = tds[1].string
-                
+
     def insert(self, document):
         now = datetime.datetime.now()
         archives = self.connection.select(
@@ -265,7 +267,7 @@ class Manager(object):
             source=document.source,
             source_no=document.source_no,
             paper=Manager.code_str(
-                item=self.papers[self.papers.index == document.paper_nm].iloc[0],
+                item=self.papers.iloc[document.paper_nm],
             ),
             user_nm=document.user_nm,
             subject=document.subject,
@@ -304,14 +306,20 @@ class Manager(object):
                 attachment = self.stamp.stamp(
                     attachment,
                     date_str=Manager.time_str(now, sep='.'),
-                    no_str='{:03d}{:07d}'.format(now - 1911, document.receive_no),
+                    no_str='{:03d}{:07d}'.format(
+                        now - 1911,
+                        document.receive_no,
+                    ),
                 )
 
             attachment.save(path)
 
     def save_as_attachment(self, document):
         conductor = self.conductors.loc[document.user_nm]
-        document.attachment_dir = os.path.join(conductor.attachment_dir, '{:04d}'.format(document.receive_no))
+        document.attachment_dir = os.path.join(
+            conductor.attachment_dir,
+            '{:04d}'.format(document.receive_no),
+        )
 
         for attachment in document.attachments:
             path = os.path.join(
@@ -530,7 +538,7 @@ class eClient(requests.Session):
     def download(self, url):
         r = self._request(
             'get',
-            url, 
+            url,
             stream=True,
         )
         buf = cStringIO.StringIO()

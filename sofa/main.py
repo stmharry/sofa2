@@ -6,7 +6,7 @@ import flask_bootstrap
 from util import Manager, eClient, Connection
 
 app = flask.Flask(__name__)
-app.debug = True
+app.debug = False
 flask_bootstrap.Bootstrap(app)
 
 eclient = eClient(
@@ -57,6 +57,7 @@ def receive():
         document=document,
         documents=document_by_source_no.values(),
     )
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=1235)
