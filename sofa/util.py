@@ -281,15 +281,15 @@ class Manager(object):
         )
 
     def save_as_print(self, document):
-        if document.receive_no is None:
-            no_str = '{document.source_no:s}'
+        if self.print_only:
+            id_str = '{document.source_no:s}'
         else:
-            no_str = '{document.receive_no:04d}'
+            id_str = '{document.user_nm}_{document.receive_no:04d}'
 
         for (num_attachment, attachment) in enumerate(document.attachments):
             path = os.path.join(
                 self.print_dir,
-                (no_str + u'_附件{num_attachment:d}_{attachment.name:s}').format(
+                (id_str + u'_附件{num_attachment:d}_{attachment.name:s}').format(
                     document=document,
                     num_attachment=num_attachment,
                     attachment=attachment,
@@ -491,7 +491,7 @@ class eClient(requests.Session):
                  server,
                  userid,
                  passwd,
-                 timeout=1.0):
+                 timeout=None):
 
         super(eClient, self).__init__()
         self.server = server
