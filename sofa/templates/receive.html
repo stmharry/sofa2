@@ -4,6 +4,11 @@
 公文收發系統
 {% endblock %}
 
+{% block styles %}
+{{super()}}
+<link rel="stylesheet" href="{{ url_for('.static', filename='style.css') }}">
+{% endblock %}
+
 {% block navbar %}
 <nav class="navbar navbar-default">
     <div class="container-fluid">
