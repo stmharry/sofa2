@@ -300,10 +300,11 @@ class Manager(object):
                 continue
 
             if attachment.is_main:
+                now = datetime.datetime.now()
                 attachment = self.stamp.stamp(
                     attachment,
-                    date_str=Manager.time_str(document.receive_datetime, sep='.'),
-                    no_str='{:03d}{:07d}'.format(document.receive_datetime.year - 1911, document.receive_no),
+                    date_str=Manager.time_str(now, sep='.'),
+                    no_str='{:03d}{:07d}'.format(now - 1911, document.receive_no),
                 )
 
             attachment.save(path)
