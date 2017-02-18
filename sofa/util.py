@@ -267,7 +267,7 @@ class Manager(object):
             source=document.source,
             source_no=document.source_no,
             paper=Manager.code_str(
-                item=self.papers.iloc[document.paper_nm],
+                item=self.papers.loc[unicode(document.paper_nm)],
             ),
             user_nm=document.user_nm,
             subject=document.subject,
@@ -283,7 +283,7 @@ class Manager(object):
         )
 
     def save_as_print(self, document):
-        if self.print_only:
+        if document.print_only:
             id_str = '{document.source_no:s}'
         else:
             id_str = '{document.user_nm}_{document.receive_no:04d}'
@@ -307,7 +307,7 @@ class Manager(object):
                     attachment,
                     date_str=Manager.time_str(now, sep='.'),
                     no_str='{:03d}{:07d}'.format(
-                        now - 1911,
+                        now.year - 1911,
                         document.receive_no,
                     ),
                 )

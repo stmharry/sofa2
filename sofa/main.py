@@ -50,6 +50,7 @@ def receive():
 
     except Exception as e:
         manager.alerts.append(unicode(e))
+        print(e)
 
     return flask.render_template(
         'receive.html',
